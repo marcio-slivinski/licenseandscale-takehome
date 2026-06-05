@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { approveProposal, type EditedLineItem } from "@/actions/proposals";
 import type { ProposalFlag, PricingItem } from "@/lib/types";
 import { AddLineItemDialog } from "./AddLineItemDialog";
+import { SyncActions } from "./SyncActions";
 
 type LineItem = {
   id: string;
@@ -78,6 +79,8 @@ export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _par
   return (
     <div className="space-y-6 pb-32">
       {flags.length > 0 && <FlagPanel flags={flags} />}
+
+      <SyncActions proposalId={proposalId} />
 
       {/* Summary strip */}
       <div className="grid gap-4 md:grid-cols-3">

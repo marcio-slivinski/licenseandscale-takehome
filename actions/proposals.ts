@@ -404,3 +404,182 @@ export async function getCatalogForPicker(): Promise<PricingItem[]> {
   const { data } = await supabaseAdmin.from("pricing_items").select("*").order("category", { ascending: true });
   return (data ?? []) as PricingItem[];
 }
+
+// ── refreshDraftPrices ───────────────────────────────────────────────────────
+export type RefreshPricesResult =
+  | { ok: true; updated: number; missing: number }
+  | { ok: false; error: string };
+
+/**
+ * Sync unit_price on a draft proposal's line items from the current catalog.
+ *
+ * Cheap (no LLM call). Preserves quantity, needs_review, narrative, and scope.
+ * Use case: Marcus synced his Google Sheet, catalog prices moved, he wants the open
+ * draft to reflect new prices without redoing everything.
+ *
+ * Line items whose pricing_item_id is null (e.g., catalog item was deleted, or manually
+ * added with no match) are left untouched and counted in `missing`.
+ *
+ * Sent / approved proposals are immutable — error returned.
+ */
+export async function refreshDraftPrices(proposalId: string): Promise<RefreshPricesResult> {
+  const { data: proposal } = await supabaseAdmin
+    .from("proposals")
+    .select("id, status, lead_id")
+    .eq("id", proposalId)
+    .single();
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") {
+    return { ok: false, error: "Can only refresh prices on draft proposals. Sent proposals snapshot price at send time." };
+  }
+
+  const { data: linkedRaw } = await supabaseAdmin
+    .from("proposal_line_items")
+    .select("id, pricing_item_id, quantity, needs_review, pricing_items(unit_price)")
+    .eq("proposal_id", proposalId);
+
+  type LinkedRow = {
+    id: string;
+    pricing_item_id: string | null;
+    quantity: number;
+    needs_review: boolean;
+    pricing_items: { unit_price: number } | { unit_price: number }[] | null;
+  };
+  const linked = ((linkedRaw ?? []) as unknown as LinkedRow[]).map((row) => ({
+    ...row,
+    pricing_items: Array.isArray(row.pricing_items) ? row.pricing_items[0] ?? null : row.pricing_items,
+  }));
+
+  let updated = 0;
+  let missing = 0;
+  let newTotal = 0;
+
+  for (const row of linked) {
+    if (!row.pricing_item_id || !row.pricing_items) {
+      missing += 1;
+      continue;
+    }
+    const newUnitPrice = Number(row.pricing_items.unit_price);
+    const newSubtotal = row.needs_review ? 0 : newUnitPrice * Number(row.quantity);
+    if (!row.needs_review) newTotal += newSubtotal;
+
+    const { error } = await supabaseAdmin
+      .from("proposal_line_items")
+      .update({ unit_price: newUnitPrice, subtotal: newSubtotal })
+      .eq("id", row.id);
+    if (!error) updated += 1;
+  }
+
+  // Re-add subtotals from missing items (their old subtotals persist in DB)
+  const { data: untouchedRaw } = await supabaseAdmin
+    .from("proposal_line_items")
+    .select("subtotal, needs_review")
+    .eq("proposal_id", proposalId)
+    .is("pricing_item_id", null);
+  for (const row of (untouchedRaw ?? [])) {
+    if (!row.needs_review) newTotal += Number(row.subtotal);
+  }
+
+  await supabaseAdmin.from("proposals").update({ total: newTotal }).eq("id", proposalId);
+  await audit("proposal", proposalId, "edited", { change: "prices_refreshed", updated, missing, total: newTotal });
+
+  revalidatePath(`/proposals/${proposalId}/review`);
+  return { ok: true, updated, missing };
+}
+
+// ── regenerateDraft ──────────────────────────────────────────────────────────
+export type RegenerateResult =
+  | { ok: true; proposalId: string }
+  | { ok: false; error: string };
+
+/**
+ * Rerun the full pipeline on a draft proposal in place.
+ *
+ * Same raw site walk notes → fresh scope inference → fresh line matching → fresh narrative.
+ * Replaces all proposal_line_items + narrative + flags + total.
+ *
+ * Use case: catalog changed significantly, Marcus wants the draft entirely redone from
+ * his original notes. Marcus's pending qty/include edits AND narrative edits are LOST.
+ * Caller (UI) should confirm before invoking.
+ *
+ * Rate limited like draft (1 per 30s per lead) to protect API spend.
+ */
+export async function regenerateDraft(proposalId: string): Promise<RegenerateResult> {
+  const { data: proposal } = await supabaseAdmin
+    .from("proposals")
+    .select("id, status, lead_id, site_walk_id")
+    .eq("id", proposalId)
+    .single();
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") {
+    return { ok: false, error: "Can only regenerate draft proposals." };
+  }
+  if (!proposal.site_walk_id) {
+    return { ok: false, error: "No site walk notes attached to this proposal — can't regenerate." };
+  }
+
+  const rl = rateLimit(`regenerate:${proposal.lead_id}`, { max: 1, windowMs: 30_000 });
+  if (!rl.allowed) {
+    return { ok: false, error: `Wait ${Math.ceil(rl.retryAfterMs / 1000)}s before regenerating again.` };
+  }
+
+  // Load everything in parallel
+  const [{ data: lead }, { data: siteWalk }, { data: catalogRaw }, { data: exemplarsRaw }] = await Promise.all([
+    supabaseAdmin.from("leads").select("*").eq("id", proposal.lead_id).single(),
+    supabaseAdmin.from("site_walks").select("*").eq("id", proposal.site_walk_id).single(),
+    supabaseAdmin.from("pricing_items").select("*"),
+    supabaseAdmin.from("voice_exemplars").select("*").order("uploaded_at", { ascending: false }).limit(50),
+  ]);
+
+  if (!lead) return { ok: false, error: "Lead not found." };
+  if (!siteWalk) return { ok: false, error: "Site walk record gone." };
+
+  const catalog = (catalogRaw ?? []) as PricingItem[];
+  const exemplars = (exemplarsRaw ?? []) as VoiceExemplar[];
+
+  // Step 1: re-extract scope
+  const scopeResult = await extractScope(siteWalk.raw_notes, catalog);
+  if (!scopeResult.ok) return { ok: false, error: `Scope extraction failed: ${scopeResult.error}` };
+
+  await supabaseAdmin.from("site_walks").update({ parsed_scope: scopeResult.scope }).eq("id", siteWalk.id);
+
+  // Step 2: re-match line items
+  const matches = await matchLineItems(scopeResult.scope, catalog);
+  const scoredItems = buildScoredLineItems(matches, catalog);
+  const total = calculateTotal(scoredItems);
+
+  // Step 3: re-write narrative
+  const narrativeResult = await writeNarrative({
+    lead: { name: lead.name, project_address: lead.project_address, notes: lead.notes },
+    scope: scopeResult.scope,
+    matches,
+    catalog,
+    exemplars,
+  });
+  if (!narrativeResult.ok) return { ok: false, error: `Narrative generation failed: ${narrativeResult.error}` };
+
+  // Step 4: guardrails
+  const flags = generateFlags(scoredItems, total, narrativeResult.narrative, catalog);
+
+  // Step 5: replace state in place
+  await supabaseAdmin.from("proposal_line_items").delete().eq("proposal_id", proposalId);
+  await persistLineItems(proposalId, scoredItems);
+  await supabaseAdmin
+    .from("proposals")
+    .update({
+      narrative: narrativeResult.narrative,
+      total,
+      flags,
+    })
+    .eq("id", proposalId);
+
+  await audit("proposal", proposalId, "edited", {
+    change: "regenerated",
+    item_count: scoredItems.length,
+    flag_count: flags.length,
+    total,
+  });
+
+  revalidatePath(`/proposals/${proposalId}/review`);
+  return { ok: true, proposalId };
+}
