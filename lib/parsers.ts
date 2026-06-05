@@ -31,9 +31,11 @@ export async function parseFile(filename: string, buffer: Buffer): Promise<Parse
       }
 
       case "pdf": {
-        const pdfParse = (await import("pdf-parse")).default;
-        const result = await pdfParse(buffer);
-        return { ok: true, text: result.text.trim() };
+        // pdf-parse v2 exports a PDFParse class (not a default function).
+        const { PDFParse } = await import("pdf-parse");
+        const parser = new PDFParse({ data: new Uint8Array(buffer) });
+        const result = await parser.getText();
+        return { ok: true, text: (result.text ?? "").trim() };
       }
 
       default:
