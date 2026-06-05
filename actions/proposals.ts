@@ -301,3 +301,106 @@ async function audit(entityType: string, entityId: string, action: string, metad
     metadata,
   });
 }
+
+// ── addLineItem ──────────────────────────────────────────────────────────────
+export type AddedLineItem = {
+  id: string;
+  scope_description: string;
+  item_name: string;
+  category: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  confidence: number;
+  needs_review: boolean;
+};
+
+export type AddLineItemResult =
+  | { ok: true; lineItem: AddedLineItem }
+  | { ok: false; error: string };
+
+/**
+ * Add a manual line item to an existing draft proposal.
+ *
+ * Use case: Marcus is reviewing a draft and remembers something the agent missed on the
+ * site walk notes. He picks an item from the catalog and sets quantity. We snapshot the
+ * current catalog price into proposal_line_items.unit_price (so future catalog price
+ * changes don't retroactively modify this proposal).
+ *
+ * Items added this way: confidence = 1.0 (Marcus picked it explicitly), needs_review = false.
+ */
+export async function addLineItem(
+  proposalId: string,
+  pricingItemId: string,
+  quantity: number,
+): Promise<AddLineItemResult> {
+  if (quantity <= 0) return { ok: false, error: "Quantity must be greater than zero." };
+
+  const [{ data: proposal }, { data: pricing }, { data: existing }] = await Promise.all([
+    supabaseAdmin.from("proposals").select("id, status").eq("id", proposalId).single(),
+    supabaseAdmin.from("pricing_items").select("*").eq("id", pricingItemId).single(),
+    supabaseAdmin
+      .from("proposal_line_items")
+      .select("position")
+      .eq("proposal_id", proposalId)
+      .order("position", { ascending: false })
+      .limit(1),
+  ]);
+
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") {
+    return { ok: false, error: "Cannot add items to a proposal that has already been sent." };
+  }
+  if (!pricing) return { ok: false, error: "Catalog item not found." };
+
+  const nextPosition = (existing?.[0]?.position ?? -1) + 1;
+  const unitPrice = Number(pricing.unit_price);
+  const subtotal = unitPrice * quantity;
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from("proposal_line_items")
+    .insert({
+      proposal_id: proposalId,
+      pricing_item_id: pricingItemId,
+      scope_description: pricing.item_name,
+      quantity,
+      unit_price: unitPrice,
+      subtotal,
+      confidence: 1.0,
+      needs_review: false,
+      position: nextPosition,
+    })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  await audit("proposal", proposalId, "edited", {
+    change: "line_item_added",
+    item_name: pricing.item_name,
+    quantity,
+    subtotal,
+  });
+
+  return {
+    ok: true,
+    lineItem: {
+      id: inserted.id,
+      scope_description: pricing.item_name,
+      item_name: pricing.item_name,
+      category: pricing.category,
+      unit: pricing.unit,
+      quantity,
+      unit_price: unitPrice,
+      subtotal,
+      confidence: 1.0,
+      needs_review: false,
+    },
+  };
+}
+
+// ── catalogList (read helper for clients) ────────────────────────────────────
+export async function getCatalogForPicker(): Promise<PricingItem[]> {
+  const { data } = await supabaseAdmin.from("pricing_items").select("*").order("category", { ascending: true });
+  return (data ?? []) as PricingItem[];
+}

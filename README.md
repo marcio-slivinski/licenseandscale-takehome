@@ -147,13 +147,36 @@ Prompt builder dynamically injects top 3 voice_docs + top 5 proposals + top 10 r
 
 ---
 
+## Pricing catalog management
+
+The catalog is the single source of truth for line item prices. Marcus manages it at `/settings/catalog`:
+
+- **Initial setup:** Marcus exports his Google Sheet to CSV and uploads via the **Import CSV** button. Existing items with the same name update, new names insert. Validation per row — bad rows skip with a reason, good rows commit.
+- **Day-to-day:** Catalog stays mostly untouched. Marcus opens it when a supplier price moves or he adds a new product offering.
+- **Edit individual:** Click any row → inline edit name, description, category, unit, price, tags → save. Audit logged.
+- **Add individual:** "+ Add item" button → form → save.
+- **Delete:** Confirm modal. Existing proposals are NOT affected by deletion (line items snapshot price at draft time, see below).
+
+**Price snapshot guarantee.** Each `proposal_line_items` row stores its own `unit_price` and `subtotal` at the time the proposal was drafted. Catalog edits afterward do NOT retroactively change sent proposals. This is intentional — proposals are contracts, not live computations.
+
+**Add line item during review.** In the HITL review UI, the "+ Add item" button on the line items header opens a catalog picker. Marcus searches by name/category/tag, sets quantity, adds to the proposal. Added items get `confidence: 1.0` (Marcus picked it explicitly) and bypass `needs_review`.
+
+CSV format expected:
+```
+category,item_name,description,unit,unit_price,tags
+hardscape,Travertine Paver Patio (24x24),"Premium travertine pavers",sqft,28.00,patio|travertine|premium
+structure,Cedar Pergola 12x12,"Stained cedar pergola",each,8500.00,pergola|cedar
+```
+
+Tags pipe-separated. category ∈ {hardscape, landscape, irrigation, lighting, water_feature, structure}. unit ∈ {sqft, linear_ft, each, project}.
+
 ## What's deliberately NOT in P0 (production roadmap)
 
 - **GHL API push** — would update opportunity stage + push PDF to GHL. ~2h of integration work. Cut for 24h ship.
 - **Voice memo input** — Whisper transcription of Marcus dictating. ~1.5h. Paste-text only in P0.
-- **Full 200-item pricing catalog** — P0 seeds 15 representative items. Marcus exports CSV from his spreadsheet for prod import.
+- **Google Sheets sync** — daily polling of Marcus's pricing sheet to auto-update the catalog. P0 covers this need via the CSV import + manual edit UI. Sheets sync is a ~3h add when Marcus tires of re-exporting.
 - **Auth** — single-user demo. Production adds Supabase Auth + per-user RLS.
-- **Embedding-based matching** — overkill for 15-item catalog (and probably 200). Haiku classification is faster + cheaper + gives reasoning we can show in UI.
+- **Embedding-based matching** — overkill for ~200 item catalog. Haiku classification is faster + cheaper + gives reasoning we can show in UI.
 - **Tests** — coverage deliberately deferred to ship within 24h. Production would include integration tests on guardrails and unit tests on scope extraction.
 
 ---
@@ -203,14 +226,17 @@ Open http://localhost:3000. Click into a demo lead. Paste notes. Draft. Review. 
 │   ├── proposals/[id]/
 │   │   ├── review/               HITL side-by-side UI
 │   │   └── sent/                 Confirmation
-│   ├── settings/voice/           Voice training upload UI
+│   ├── settings/
+│   │   ├── voice/                Voice training upload UI
+│   │   └── catalog/              Pricing catalog management (CRUD + CSV import)
 │   ├── api/health/               DB + Anthropic + Slack check
 │   ├── error.tsx                 Global error boundary
 │   ├── loading.tsx               Suspense fallback
 │   └── not-found.tsx             404
 ├── actions/
-│   ├── proposals.ts              createLead, draftProposal, approveProposal
-│   └── voice.ts                  uploadVoiceFile, deleteVoiceExemplar
+│   ├── proposals.ts              createLead, draftProposal, approveProposal, addLineItem
+│   ├── voice.ts                  uploadVoiceFile, deleteVoiceExemplar
+│   └── catalog.ts                createPricingItem, updatePricingItem, deletePricingItem, importCSV
 ├── lib/
 │   ├── agents/
 │   │   ├── scope-extractor.ts    Call A (Sonnet + tool use)

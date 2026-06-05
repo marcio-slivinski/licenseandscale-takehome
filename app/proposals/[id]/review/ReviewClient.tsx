@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { approveProposal, type EditedLineItem } from "@/actions/proposals";
-import type { ProposalFlag } from "@/lib/types";
+import type { ProposalFlag, PricingItem } from "@/lib/types";
+import { AddLineItemDialog } from "./AddLineItemDialog";
 
 type LineItem = {
   id: string;
@@ -27,9 +28,10 @@ type Props = {
   lineItems: LineItem[];
   total: number;
   flags: ProposalFlag[];
+  catalog: PricingItem[];
 };
 
-export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _parsedScope, narrative: initialNarrative, lineItems: initialItems, total: initialTotal, flags }: Props) {
+export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _parsedScope, narrative: initialNarrative, lineItems: initialItems, total: initialTotal, flags, catalog }: Props) {
   const router = useRouter();
   const [narrative, setNarrative] = useState(initialNarrative);
   const [items, setItems] = useState<LineItem[]>(initialItems);
@@ -106,11 +108,34 @@ export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _par
 
       {/* Line items */}
       <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] overflow-hidden">
-        <div className="border-b border-[var(--color-line)] px-5 py-3">
-          <div className="text-sm font-semibold">Line items</div>
-          <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">
-            Adjust quantities, uncheck anything you don&apos;t want on the proposal. Items in yellow weren&apos;t fully matched, double-check them.
-          </p>
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--color-line)] px-5 py-3">
+          <div>
+            <div className="text-sm font-semibold">Line items</div>
+            <p className="mt-0.5 text-xs text-[var(--color-ink-muted)]">
+              Adjust quantities, uncheck anything you don&apos;t want on the proposal. Items in yellow weren&apos;t fully matched, double-check them.
+            </p>
+          </div>
+          <AddLineItemDialog
+            proposalId={proposalId}
+            catalog={catalog}
+            onAdded={(added) =>
+              setItems((prev) => [
+                ...prev,
+                {
+                  id: added.id,
+                  scope_description: added.scope_description,
+                  item_name: added.item_name,
+                  category: added.category,
+                  unit: added.unit,
+                  quantity: added.quantity,
+                  unit_price: added.unit_price,
+                  subtotal: added.subtotal,
+                  confidence: added.confidence,
+                  needs_review: added.needs_review,
+                },
+              ])
+            }
+          />
         </div>
         <table className="w-full text-sm">
           <thead className="bg-[var(--color-canvas)] text-xs uppercase tracking-wider text-[var(--color-ink-muted)]">

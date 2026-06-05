@@ -24,6 +24,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </Link>
             <nav className="flex items-center gap-1 text-sm">
               <NavLink href="/">Dashboard</NavLink>
+              <NavLink href="/settings/catalog">Catalog</NavLink>
               <NavLink href="/settings/voice">Voice Training</NavLink>
               <NavLink href="/health">System</NavLink>
             </nav>

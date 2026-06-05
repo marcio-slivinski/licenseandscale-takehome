@@ -24,11 +24,20 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
     .eq("id", proposal.site_walk_id)
     .single();
 
-  const { data: lineItemsRaw } = await supabaseAdmin
-    .from("proposal_line_items")
-    .select("*, pricing_items(item_name, unit, category)")
-    .eq("proposal_id", id)
-    .order("position", { ascending: true });
+  const [{ data: lineItemsRaw }, { data: catalogRaw }] = await Promise.all([
+    supabaseAdmin
+      .from("proposal_line_items")
+      .select("*, pricing_items(item_name, unit, category)")
+      .eq("proposal_id", id)
+      .order("position", { ascending: true }),
+    supabaseAdmin
+      .from("pricing_items")
+      .select("*")
+      .order("category", { ascending: true })
+      .order("item_name", { ascending: true }),
+  ]);
+
+  const catalog = (catalogRaw ?? []) as any[];
 
   const lineItems = (lineItemsRaw ?? []).map((li: any) => ({
     id: li.id,
@@ -64,6 +73,7 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
         lineItems={lineItems}
         total={Number(proposal.total ?? 0)}
         flags={proposal.flags ?? []}
+        catalog={catalog}
       />
     </div>
   );

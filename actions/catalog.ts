@@ -1,0 +1,227 @@
+"use server";
+
+/**
+ * Server actions for the pricing catalog.
+ *
+ *   - createPricingItem    → add a single new line item (manual UI)
+ *   - updatePricingItem    → edit name/desc/unit/price/tags of existing item
+ *   - deletePricingItem    → remove from catalog (existing proposals untouched — they snapshot price)
+ *   - importCSV            → bulk upsert from CSV (initial setup + seasonal updates)
+ *
+ * Important guarantee: proposals already drafted/sent are NOT affected by catalog changes.
+ * Each proposal_line_item snapshots unit_price at draft time. Catalog edits only affect
+ * FUTURE proposals + new "add line item" picks.
+ *
+ * CSV format expected (header row required, case-insensitive):
+ *   category,item_name,description,unit,unit_price,tags
+ *
+ * - category must be one of: hardscape, landscape, irrigation, lighting, water_feature, structure
+ * - unit must be one of: sqft, linear_ft, each, project
+ * - unit_price: number, no $ sign
+ * - tags: pipe-separated (e.g., "patio|premium|travertine")
+ *
+ * Upsert key: item_name (case-insensitive). Existing item with same name → update.
+ */
+
+import { revalidatePath } from "next/cache";
+import { supabaseAdmin } from "@/lib/supabase";
+import type { PricingItem } from "@/lib/types";
+
+const VALID_CATEGORIES = new Set(["hardscape", "landscape", "irrigation", "lighting", "water_feature", "structure"]);
+const VALID_UNITS = new Set(["sqft", "linear_ft", "each", "project"]);
+
+// ── createPricingItem ────────────────────────────────────────────────────────
+export async function createPricingItem(formData: FormData): Promise<void> {
+  const category = String(formData.get("category") ?? "").trim();
+  const item_name = String(formData.get("item_name") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim() || null;
+  const unit = String(formData.get("unit") ?? "").trim();
+  const unit_price = Number(formData.get("unit_price") ?? 0);
+  const tagsRaw = String(formData.get("tags") ?? "").trim();
+  const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : null;
+
+  if (!item_name) throw new Error("Item name is required.");
+  if (!VALID_CATEGORIES.has(category)) throw new Error(`Category must be one of: ${[...VALID_CATEGORIES].join(", ")}`);
+  if (!VALID_UNITS.has(unit)) throw new Error(`Unit must be one of: ${[...VALID_UNITS].join(", ")}`);
+  if (!(unit_price > 0)) throw new Error("Unit price must be greater than zero.");
+
+  const { data, error } = await supabaseAdmin
+    .from("pricing_items")
+    .insert({ category, item_name, description, unit, unit_price, tags })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Failed to add item: ${error.message}`);
+
+  await audit("pricing_item", data.id, "drafted", { action: "created", item_name, unit_price });
+  revalidatePath("/settings/catalog");
+}
+
+// ── updatePricingItem ────────────────────────────────────────────────────────
+export type UpdateItemResult = { ok: true } | { ok: false; error: string };
+
+export async function updatePricingItem(
+  id: string,
+  patch: { category?: string; item_name?: string; description?: string | null; unit?: string; unit_price?: number; tags?: string[] | null },
+): Promise<UpdateItemResult> {
+  if (patch.category && !VALID_CATEGORIES.has(patch.category)) {
+    return { ok: false, error: `Category must be one of: ${[...VALID_CATEGORIES].join(", ")}` };
+  }
+  if (patch.unit && !VALID_UNITS.has(patch.unit)) {
+    return { ok: false, error: `Unit must be one of: ${[...VALID_UNITS].join(", ")}` };
+  }
+  if (patch.unit_price != null && !(patch.unit_price > 0)) {
+    return { ok: false, error: "Unit price must be greater than zero." };
+  }
+
+  const { error } = await supabaseAdmin.from("pricing_items").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  await audit("pricing_item", id, "edited", { patch });
+  revalidatePath("/settings/catalog");
+  return { ok: true };
+}
+
+// ── deletePricingItem ────────────────────────────────────────────────────────
+export async function deletePricingItem(id: string): Promise<{ ok: boolean; error?: string }> {
+  // Per FK constraint (ON DELETE SET NULL on proposal_line_items.pricing_item_id),
+  // existing proposals lose the linkage but retain the snapshot of name/qty/price/subtotal.
+  const { error } = await supabaseAdmin.from("pricing_items").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  await audit("pricing_item", id, "edited", { action: "deleted" });
+  revalidatePath("/settings/catalog");
+  return { ok: true };
+}
+
+// ── importCSV ────────────────────────────────────────────────────────────────
+export type ImportSummary = {
+  ok: true;
+  inserted: number;
+  updated: number;
+  skipped: Array<{ row: number; reason: string }>;
+};
+export type ImportResult = ImportSummary | { ok: false; error: string };
+
+export async function importCSV(csvText: string): Promise<ImportResult> {
+  const rows = parseCSV(csvText);
+  if (rows.length === 0) return { ok: false, error: "CSV is empty or has no parseable rows." };
+
+  const header = rows[0].map((c) => c.trim().toLowerCase());
+  const requiredCols = ["category", "item_name", "unit", "unit_price"];
+  const optionalCols = ["description", "tags"];
+  for (const col of requiredCols) {
+    if (!header.includes(col)) return { ok: false, error: `Missing required column: ${col}` };
+  }
+
+  const idx = {
+    category: header.indexOf("category"),
+    item_name: header.indexOf("item_name"),
+    description: header.indexOf("description"),
+    unit: header.indexOf("unit"),
+    unit_price: header.indexOf("unit_price"),
+    tags: header.indexOf("tags"),
+  };
+
+  // Load existing items for upsert-by-name.
+  const { data: existingRaw } = await supabaseAdmin.from("pricing_items").select("id, item_name");
+  const existingByName = new Map<string, string>();
+  for (const item of (existingRaw ?? []) as Array<{ id: string; item_name: string }>) {
+    existingByName.set(item.item_name.toLowerCase().trim(), item.id);
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  const skipped: Array<{ row: number; reason: string }> = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.length === 1 && !row[0].trim()) continue; // blank line
+
+    const category = (row[idx.category] ?? "").trim();
+    const item_name = (row[idx.item_name] ?? "").trim();
+    const unit = (row[idx.unit] ?? "").trim();
+    const unitPriceRaw = (row[idx.unit_price] ?? "").replace(/[$,\s]/g, "");
+    const unit_price = Number(unitPriceRaw);
+    const description = idx.description >= 0 ? ((row[idx.description] ?? "").trim() || null) : null;
+    const tagsRaw = idx.tags >= 0 ? (row[idx.tags] ?? "").trim() : "";
+    const tags = tagsRaw ? tagsRaw.split(/[|;]/).map((t) => t.trim()).filter(Boolean) : null;
+
+    // Validate
+    if (!item_name) { skipped.push({ row: i + 1, reason: "missing item_name" }); continue; }
+    if (!VALID_CATEGORIES.has(category)) { skipped.push({ row: i + 1, reason: `invalid category: ${category}` }); continue; }
+    if (!VALID_UNITS.has(unit)) { skipped.push({ row: i + 1, reason: `invalid unit: ${unit}` }); continue; }
+    if (!(unit_price > 0)) { skipped.push({ row: i + 1, reason: `invalid unit_price: ${row[idx.unit_price]}` }); continue; }
+
+    const payload = { category, item_name, description, unit, unit_price, tags };
+
+    const existingId = existingByName.get(item_name.toLowerCase().trim());
+    if (existingId) {
+      const { error } = await supabaseAdmin.from("pricing_items").update(payload).eq("id", existingId);
+      if (error) skipped.push({ row: i + 1, reason: `update failed: ${error.message}` });
+      else updated += 1;
+    } else {
+      const { error } = await supabaseAdmin.from("pricing_items").insert(payload);
+      if (error) skipped.push({ row: i + 1, reason: `insert failed: ${error.message}` });
+      else inserted += 1;
+    }
+  }
+
+  await audit("pricing_item", "bulk", "uploaded", { inserted, updated, skipped: skipped.length });
+  revalidatePath("/settings/catalog");
+  return { ok: true, inserted, updated, skipped };
+}
+
+// ── getCatalog (read helper) ─────────────────────────────────────────────────
+export async function getCatalog(): Promise<PricingItem[]> {
+  const { data } = await supabaseAdmin.from("pricing_items").select("*").order("category", { ascending: true }).order("item_name", { ascending: true });
+  return (data ?? []) as PricingItem[];
+}
+
+// ── CSV parser (minimal, no deps) ────────────────────────────────────────────
+/**
+ * Tiny CSV parser handling double-quoted fields with embedded commas/newlines.
+ * Sufficient for catalog upload — not RFC-perfect, but covers Excel/Sheets exports.
+ */
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (c === '"' && next === '"') { field += '"'; i++; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else {
+      if (c === '"') { inQuotes = true; }
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && next === "\n") i++;
+        row.push(field); field = "";
+        rows.push(row);
+        row = [];
+      } else {
+        field += c;
+      }
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.length > 0 && !(r.length === 1 && !r[0].trim()));
+}
+
+async function audit(entityType: string, entityId: string, action: string, metadata: Record<string, unknown>) {
+  await supabaseAdmin.from("audit_log").insert({
+    entity_type: entityType,
+    entity_id: entityId === "bulk" ? "00000000-0000-0000-0000-000000000000" : entityId,
+    action,
+    actor: "marcus",
+    metadata: { ...metadata, ...(entityId === "bulk" ? { bulk: true } : {}) },
+  });
+}
