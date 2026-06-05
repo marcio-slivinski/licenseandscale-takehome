@@ -20,26 +20,25 @@ export default async function VoiceSettingsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/" className="text-sm text-stone-500 hover:text-stone-800">← Dashboard</Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Voice training</h1>
-        <p className="mt-1 text-sm text-stone-600 max-w-2xl">
-          Upload Marcus&apos;s past proposals and writing samples. The narrative writer uses them as
-          few-shot exemplars. Every edit Marcus makes on a draft is captured automatically as an
-          edit-correction signal. Voice quality converges with use.
+        <Link href="/" className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-brand)]">← Dashboard</Link>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Voice training</h1>
+        <p className="mt-2 text-sm text-[var(--color-ink-soft)] max-w-2xl">
+          Upload past proposals or anything written in your voice. Every draft pulls from these as examples.
+          Every time you edit a draft and approve, your edits get saved here too. The system gets closer to your real voice with use.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Section
+        <UploadSection
           title="Past proposals"
-          subtitle="Drop signed proposals from Google Drive or anywhere. Best training signal."
+          subtitle="The best training material. Drop signed proposals from Google Drive or anywhere."
           type="proposal"
           items={proposals}
           accept=".pdf,.docx,.txt,.md"
         />
-        <Section
-          title="Voice & style docs"
-          subtitle="Writing samples by Marcus: emails, briefs, anything in his voice."
+        <UploadSection
+          title="Writing samples"
+          subtitle="Emails, briefs, anything you wrote. Helps the tone match yours."
           type="voice_doc"
           items={voiceDocs}
           accept=".pdf,.docx,.txt,.md"
@@ -49,34 +48,34 @@ export default async function VoiceSettingsPage() {
       <section>
         <div className="flex items-baseline justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Edit corrections (auto-captured)</h2>
-            <p className="text-sm text-stone-600">
-              Every time you edit an AI draft and approve it, the diff is saved here. The next draft pulls these as negative→positive examples.
+            <h2 className="text-lg font-semibold tracking-tight">Edits we&apos;ve learned from</h2>
+            <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
+              Every time you change a draft and approve it, we save the before-and-after here. The next draft sees these examples.
             </p>
           </div>
-          <span className="text-sm text-stone-500">{corrections.length} captured</span>
+          <span className="text-sm text-[var(--color-ink-muted)]">{corrections.length} captured</span>
         </div>
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-4 space-y-3">
           {corrections.length === 0 ? (
-            <li className="rounded border border-stone-200 bg-white p-4 text-sm text-stone-500">
-              No edit corrections yet. They appear automatically when you approve edited proposals.
+            <li className="rounded-xl border border-dashed border-[var(--color-line-strong)] bg-[var(--color-canvas)] p-8 text-center text-sm text-[var(--color-ink-muted)]">
+              No edits saved yet. Approve a draft with some changes and it&apos;ll show up here.
             </li>
           ) : (
             corrections.slice(0, 10).map((c) => {
               const meta = (c.metadata ?? {}) as { original?: string; edited?: string };
               return (
-                <li key={c.id} className="rounded border border-stone-200 bg-white p-4 text-sm">
-                  <div className="text-xs text-stone-500 mb-2">
+                <li key={c.id} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-5 text-sm">
+                  <div className="mb-3 text-xs text-[var(--color-ink-muted)]">
                     {new Date(c.uploaded_at).toLocaleString()}
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <div className="text-xs font-semibold text-red-700 uppercase tracking-wider">AI draft</div>
-                      <p className="mt-1 text-stone-700 line-clamp-4">{meta.original ?? "—"}</p>
+                      <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-danger)]">Draft</div>
+                      <p className="mt-1 text-[var(--color-ink-soft)] line-clamp-4">{meta.original ?? "—"}</p>
                     </div>
                     <div>
-                      <div className="text-xs font-semibold text-emerald-700 uppercase tracking-wider">Marcus&apos;s version</div>
-                      <p className="mt-1 text-stone-900 line-clamp-4">{meta.edited ?? "—"}</p>
+                      <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-brand-dark)]">Your version</div>
+                      <p className="mt-1 text-[var(--color-ink)] line-clamp-4">{meta.edited ?? "—"}</p>
                     </div>
                   </div>
                 </li>
@@ -89,29 +88,31 @@ export default async function VoiceSettingsPage() {
   );
 }
 
-function Section({ title, subtitle, type, items, accept }: { title: string; subtitle: string; type: "proposal" | "voice_doc"; items: any[]; accept: string }) {
+function UploadSection({ title, subtitle, type, items, accept }: { title: string; subtitle: string; type: "proposal" | "voice_doc"; items: any[]; accept: string }) {
   return (
-    <section className="rounded-lg border border-stone-200 bg-white p-5">
+    <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-5">
       <div className="flex items-baseline justify-between">
         <div>
           <h2 className="text-base font-semibold">{title}</h2>
-          <p className="mt-1 text-xs text-stone-500">{subtitle}</p>
+          <p className="mt-1 text-xs text-[var(--color-ink-muted)]">{subtitle}</p>
         </div>
-        <span className="text-xs text-stone-400">{items.length} uploaded</span>
+        <span className="text-xs text-[var(--color-ink-muted)]">{items.length} uploaded</span>
       </div>
       <div className="mt-4">
         <VoiceUpload type={type} accept={accept} />
       </div>
       {items.length > 0 && (
-        <ul className="mt-4 space-y-1 text-sm">
+        <ul className="mt-4 space-y-1.5 text-sm">
           {items.map((item) => (
-            <li key={item.id} className="flex items-center justify-between rounded border border-stone-100 px-3 py-2">
-              <div>
-                <div className="font-medium text-stone-800">{item.source_filename ?? "(unnamed)"}</div>
-                <div className="text-xs text-stone-500">{(item.content?.length ?? 0).toLocaleString()} chars · {new Date(item.uploaded_at).toLocaleDateString()}</div>
+            <li key={item.id} className="flex items-center justify-between rounded-md border border-[var(--color-line)] px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-[var(--color-ink)]">{item.source_filename ?? "(unnamed)"}</div>
+                <div className="text-xs text-[var(--color-ink-muted)]">
+                  {(item.content?.length ?? 0).toLocaleString()} characters · {new Date(item.uploaded_at).toLocaleDateString()}
+                </div>
               </div>
               <form action={async () => { "use server"; await deleteVoiceExemplar(item.id); }}>
-                <button type="submit" className="text-xs text-stone-400 hover:text-red-700">Remove</button>
+                <button type="submit" className="text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-danger)]">Remove</button>
               </form>
             </li>
           ))}

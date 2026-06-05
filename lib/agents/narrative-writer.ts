@@ -4,15 +4,16 @@
  * Input: Scope + matched LineMatchResults + (optional) voice exemplars from DB.
  * Output: proposal narrative (intro, scope summary, what to expect) in Marcus's voice.
  *
+ * IMPORTANT context for the model: this narrative goes INTO the same PDF as the line-items table.
+ * It does NOT promise "we'll send a proposal" — it IS the proposal. The line items table is
+ * rendered automatically by the system right below the narrative.
+ *
  * Voice strategy (cold start vs. trained):
- * - COLD START (no uploaded exemplars): synthetic exemplars derived from truth doc positioning signals.
- * - TRAINED: top 3 voice_doc + top 5 proposal exemplars (tag-matched) + top 10 edit_correction (recent).
+ * - COLD START (no uploaded exemplars): synthetic exemplar baked into prompt.
+ * - TRAINED: top 3 voice_doc + top 5 proposal exemplars (tag-matched) + top 10 edit_correction.
  *
- * Cache strategy: base voice rules + synthetic exemplars + voice_doc list all marked as
- * `cache_control: ephemeral`. Recent edit_corrections are fresh per call (small token cost).
- *
- * Anti-hallucination: prompt explicitly forbids citing items/prices not in the matched line items.
- * Guardrails module re-validates output afterward.
+ * Output format: PLAIN PROSE ONLY. No markdown (no **bold**, no ---, no #), because react-pdf renders
+ * literal characters.
  */
 
 import { anthropic, MODEL_SONNET } from "@/lib/anthropic";
@@ -23,7 +24,25 @@ const BASE_VOICE_RULES = `You write proposal narratives in Marcus Tate's voice.
 
 Marcus is the founder of Greenscape Pro (Phoenix AZ, premium hardscape/landscape, $4.2M/yr). He closes deals on site walks personally. He's direct, confident without being salesy, and his clients trust him.
 
-VOICE RULES (non-negotiable):
+# Where this narrative goes
+
+The output you write is the OPENING SECTION of a printable proposal PDF. Right below the narrative, the system automatically renders a formatted table of line items, quantities, unit prices, and the total. After the table, a footer mentions deposit terms.
+
+So you are NOT writing a cover letter, NOT writing a summary that promises a future proposal, NOT writing "we'll send you the numbers." This is the proposal itself. The numbers are right below your prose.
+
+# Output format — strict
+
+Plain prose only. No markdown markers anywhere. Do not output:
+- ** for bold
+- --- or === for separators
+- # or ## for headings
+- _ for italics
+- • or * for bullets
+
+If you want a section break, use a blank line between paragraphs. If you want to label a section, write it as a short line of plain text (no leading #), like "What's included" on its own line. The PDF renders the text exactly as you write it.
+
+# Voice rules
+
 - Plain direct English. Sound like Marcus talking to a client, not a document being drafted.
 - Use contractions: "we'll", "you've", "it's", "I'm".
 - Simple verbs: "build" not "architect", "use" not "utilize", "fix" not "implement a solution for".
@@ -31,46 +50,52 @@ VOICE RULES (non-negotiable):
 - Confidence without apology. No defensive openers ("we'd love to", "I hope this works").
 - Honest about uncertainty: if scope item is unclear, say "subject to site verification" — don't fake precision.
 
-KILL ON SIGHT (these mark AI writing):
+# Kill on sight
+
 - Em-dashes (—). Use commas, periods, or parentheses instead.
 - Scaffolding ("Two things. First… Second…", "There are three reasons"). Just say them.
 - Performative openers ("I'll be honest", "Here's the thing"). If you're being honest, just be.
 - AI vocab: leverage, robust, seamless, delve, moreover, furthermore, it's worth noting, passionate about, spearheaded.
 - Perfect tricolons ("fast, clear, and effective"). Real lists are uneven.
-- Closing summary paragraph that restates everything. End on a hook.
+- Closing summary paragraph that restates everything above.
+- Phrases like "we'll get you a line-item proposal" or "we'll send the numbers next" — the numbers are RIGHT BELOW this text.
 
-GREENSCAPE POSITIONING (Marcus uses these signals — quoted from his own onboarding):
+# Greenscape positioning
+
+These are Marcus's actual phrases from his onboarding (quoted from the truth docs):
 - "Quality, reliability, and a finished product that photographs well."
-- Premium positioning. Does NOT compete on price.
+- Premium positioning. Does not compete on price.
 - "Design to build — we handle everything from the first site walk to the final walkthrough."
 
-PROPOSAL STRUCTURE (Marcus's template):
-1. Project Overview — 2-4 sentences. What you're building, for whom, why this scope.
-2. Scope of Work — sectioned by category (hardscape, structure, etc.). Plain language, no jargon dump.
-3. Timeline & Process — typical 2-6 weeks build, depends on scope. Mention HOA/permit delays if site_constraints flagged.
-4. What to Expect Next — deposit, design sign-off, permit pulls, crew start.
+# Structure for the narrative
 
-HARD CONSTRAINT (anti-hallucination):
-You will be given a list of matched line items. The narrative may ONLY mention items, materials, or quantities that appear in that list. You may NOT invent specific brand names, exact prices, or items not in the list. If something is missing from the matched list, refer to it generally ("we'll include lighting throughout") rather than specifically.`;
+1. Opening (1-3 short sentences). Reference the site walk by date if you know it, the client by first name, what you walked through. Conversational.
+2. What we're building (a paragraph or two). Plain language summary of the scope. No prices in this paragraph (table is below). Mention complexity notes if they matter — HOA, slope, access. Don't over-explain materials Marcus already discussed on the walk.
+3. Timeline + what's next (short paragraph). Realistic build time. If HOA / permit will add weeks, say so. Mention the deposit + design sign-off + permit pulls as part of how Marcus's process works ("once you're in, we handle the HOA package and permit work from there"). Keep it short.
+4. Sign-off line. Just "Marcus" on its own line.
 
-const SYNTHETIC_PROPOSAL_EXEMPLAR = `[Synthetic example — what a Marcus-voice opening looks like, derived from his positioning signals]
+# Hard constraint (anti-hallucination)
 
-Sarah,
+You will be given a list of matched line items. The prose may ONLY mention items, materials, or quantities that appear in that list. You may NOT invent brand names, specific prices, or items not in the list. If a scope item didn't get matched (marked NO MATCH in the list), refer to it generally ("we'll include path lighting") not specifically.`;
 
-Thanks for walking me through the backyard last Tuesday. Here's what we're proposing.
+const SYNTHETIC_PROPOSAL_EXEMPLAR = `Sarah,
 
-This is a full backyard build: travertine patio, cedar pergola for the seating area, gas fire pit, and a strip of premium turf for the kids. We're keeping the existing planter beds and adding drip irrigation throughout. Path lighting along the new walkway.
+Good walking the backyard with you last Tuesday. Here's the proposal.
 
-We've done a lot of work in your HOA. The submission package isn't complicated, but it adds 3-4 weeks to start date, so factor that in.
+We're putting in a travertine paver patio for the main entertaining area, a cedar pergola over the dining spot to handle the afternoon sun, a gas fire pit by the seating wall, and a stretch of premium turf for the kids. Path lighting will run along the new walkway. Existing planter beds stay, and we'll add drip irrigation throughout so you're not babysitting anything.
 
-[Scope section follows. Then timeline. Then next steps.]`;
+We've done a few projects in your HOA. The submission package isn't complicated but adds three to four weeks to your start date, so plan on six weeks from signed proposal to crew on site. Once you're in, we handle the HOA package, permit pulls, and design sign-off. You won't be chasing paperwork.
+
+Numbers are below. When you're ready to move, the deposit kicks off your spot on the schedule.
+
+Marcus`;
 
 type NarrativeContext = {
   lead: { name: string; project_address: string | null; notes: string | null };
   scope: Scope;
   matches: LineMatchResult[];
   catalog: PricingItem[];
-  exemplars: VoiceExemplar[]; // empty array = cold start
+  exemplars: VoiceExemplar[];
 };
 
 export type NarrativeResult =
@@ -94,12 +119,11 @@ export async function writeNarrative(ctx: NarrativeContext): Promise<NarrativeRe
   } else {
     systemBlocks.push({
       type: "text",
-      text: `No uploaded proposal exemplars yet. Use this synthetic example to calibrate voice:\n\n${SYNTHETIC_PROPOSAL_EXEMPLAR}`,
+      text: `No uploaded proposal exemplars yet. Use this synthetic example to calibrate voice. Notice: no markdown markers, plain prose only, sign-off is just "Marcus" on its own line.\n\n${SYNTHETIC_PROPOSAL_EXEMPLAR}`,
       cache_control: { type: "ephemeral" },
     });
   }
 
-  // edit_corrections are fresh per call (small, continuous learning)
   if (exemplarSections.corrections) {
     systemBlocks.push({ type: "text", text: exemplarSections.corrections });
   }
@@ -112,10 +136,10 @@ Project type: ${ctx.scope.project_type}
 Estimated complexity: ${ctx.scope.estimated_complexity}
 Site constraints: ${ctx.scope.site_constraints.join(", ") || "none flagged"}
 
-Matched line items (the ONLY items you may reference specifically):
+Matched line items (the ONLY items you may reference specifically — the system renders these in a table right below your prose):
 ${matchedItemsText}
 
-Write the proposal narrative. Follow the structure (overview / scope / timeline / next steps). Match Marcus's voice. Do not invent items beyond the matched list.`;
+Write the proposal narrative now. Plain prose, no markdown. Remember: the line items table renders automatically below your text. Do not promise to send numbers, do not write "next steps will be a proposal" — this IS the proposal.`;
 
   try {
     const response = await anthropic.messages.create({
@@ -130,10 +154,36 @@ Write the proposal narrative. Follow the structure (overview / scope / timeline 
       return { ok: false, error: "Model returned no text content." };
     }
 
-    return { ok: true, narrative: text.text.trim() };
+    // Defensive: strip any stray markdown markers the model might still emit.
+    const cleaned = stripMarkdownArtifacts(text.text.trim());
+    return { ok: true, narrative: cleaned };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Unknown narrative writer error." };
   }
+}
+
+/**
+ * Remove markdown markers that react-pdf would render as literals.
+ * Conservative: only strips when clearly markdown syntax, not content.
+ */
+function stripMarkdownArtifacts(text: string): string {
+  return text
+    // **bold** → bold
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    // __bold__ → bold
+    .replace(/__([^_]+)__/g, "$1")
+    // *italic* / _italic_ → italic  (only when clearly emphasis pattern)
+    .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "$1")
+    .replace(/(?<!_)_([^_\n]+)_(?!_)/g, "$1")
+    // --- or === separators on their own line
+    .replace(/^[ \t]*[-=]{3,}[ \t]*$/gm, "")
+    // # leading headers
+    .replace(/^#{1,6}\s+/gm, "")
+    // > blockquotes
+    .replace(/^>\s+/gm, "")
+    // collapse 3+ newlines to 2
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function buildMatchedItemsContext(matches: LineMatchResult[], catalog: PricingItem[]): string {
@@ -143,7 +193,7 @@ function buildMatchedItemsContext(matches: LineMatchResult[], catalog: PricingIt
     if (pricing) {
       lines.push(`- ${m.scope_item.description} → ${pricing.item_name} (${m.scope_item.quantity} ${m.scope_item.unit}) [confidence: ${m.confidence.toFixed(2)}]`);
     } else {
-      lines.push(`- ${m.scope_item.description} (${m.scope_item.quantity} ${m.scope_item.unit}) [NO MATCH — refer to generally, do NOT name specific products]`);
+      lines.push(`- ${m.scope_item.description} (${m.scope_item.quantity} ${m.scope_item.unit}) [NO MATCH — refer to generally, do not name specific products]`);
     }
   }
   return lines.join("\n");
@@ -167,7 +217,7 @@ function buildExemplarSections(exemplars: VoiceExemplar[]): {
   }
 
   if (proposals.length > 0) {
-    result.proposals = `Past proposal exemplars (use these as the primary voice/structure model):\n\n${proposals
+    result.proposals = `Past proposal exemplars (primary voice + structure model):\n\n${proposals
       .map((p) => `--- ${p.source_filename ?? "past proposal"} ---\n${truncate(p.content, 3000)}`)
       .join("\n\n")}`;
   }

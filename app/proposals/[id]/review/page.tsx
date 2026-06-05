@@ -33,7 +33,7 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
   const lineItems = (lineItemsRaw ?? []).map((li: any) => ({
     id: li.id,
     scope_description: li.scope_description,
-    item_name: li.pricing_items?.item_name ?? "(no match)",
+    item_name: li.pricing_items?.item_name ?? "(no exact match)",
     category: li.pricing_items?.category ?? "—",
     unit: li.pricing_items?.unit ?? li.unit ?? "—",
     quantity: Number(li.quantity),
@@ -46,12 +46,12 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
   return (
     <div className="space-y-6">
       <div>
-        <Link href={`/leads/${lead.id}`} className="text-sm text-stone-500 hover:text-stone-800">
+        <Link href={`/leads/${lead.id}`} className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-brand)]">
           ← {lead.name}
         </Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">Review draft proposal</h1>
-        <p className="mt-1 text-sm text-stone-600">
-          Side-by-side: raw notes / parsed scope / matched line items + narrative. Edit any narrative line. Toggle items to include or exclude.
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Review the draft</h1>
+        <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
+          Look it over. Edit anything that&apos;s off. Approve when it&apos;s good — we&apos;ll send it.
         </p>
       </div>
 

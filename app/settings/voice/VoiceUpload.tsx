@@ -25,7 +25,7 @@ export function VoiceUpload({ type, accept }: { type: "proposal" | "voice_doc"; 
         setError(result.error);
         return;
       }
-      setStatus(`Saved ${result.charCount.toLocaleString()} chars`);
+      setStatus(`Saved · ${result.charCount.toLocaleString()} characters loaded`);
       router.refresh();
       if (inputRef.current) inputRef.current.value = "";
     });
@@ -33,7 +33,9 @@ export function VoiceUpload({ type, accept }: { type: "proposal" | "voice_doc"; 
 
   return (
     <div>
-      <label className="block cursor-pointer rounded border border-dashed border-stone-300 bg-stone-50 px-3 py-4 text-center text-sm text-stone-600 hover:border-emerald-500 hover:bg-emerald-50">
+      <label className={`block cursor-pointer rounded-lg border-2 border-dashed bg-[var(--color-canvas)] px-4 py-6 text-center text-sm transition ${
+        isPending ? "border-[var(--color-brand)] text-[var(--color-brand-dark)]" : "border-[var(--color-line-strong)] text-[var(--color-ink-soft)] hover:border-[var(--color-brand)] hover:bg-[var(--color-brand-soft)]"
+      }`}>
         <input
           ref={inputRef}
           type="file"
@@ -42,10 +44,15 @@ export function VoiceUpload({ type, accept }: { type: "proposal" | "voice_doc"; 
           disabled={isPending}
           className="hidden"
         />
-        {isPending ? "Parsing…" : `Drop ${accept} file or click to upload`}
+        {isPending ? "Reading the file…" : (
+          <>
+            <div className="font-medium">Click or drop a file</div>
+            <div className="mt-1 text-xs text-[var(--color-ink-muted)]">{accept.split(",").join(" · ")}</div>
+          </>
+        )}
       </label>
-      {error && <p className="mt-2 text-xs text-red-700">{error}</p>}
-      {status && <p className="mt-2 text-xs text-emerald-700">{status}</p>}
+      {error && <p className="mt-2 text-xs text-[var(--color-danger)]">{error}</p>}
+      {status && <p className="mt-2 text-xs text-[var(--color-brand-dark)]">{status}</p>}
     </div>
   );
 }

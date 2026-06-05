@@ -11,67 +11,75 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
   const { data: lead, error } = await supabaseAdmin.from("leads").select("*").eq("id", id).single();
   if (error || !lead) notFound();
 
-  const { data: siteWalks } = await supabaseAdmin
-    .from("site_walks")
-    .select("id, created_at")
-    .eq("lead_id", id)
-    .order("created_at", { ascending: false });
-
   const { data: proposals } = await supabaseAdmin
     .from("proposals")
     .select("id, status, total, created_at, flags")
     .eq("lead_id", id)
     .order("created_at", { ascending: false });
 
+  const proposalList = proposals ?? [];
+
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/" className="text-sm text-stone-500 hover:text-stone-800">← Dashboard</Link>
-        <h1 className="mt-2 text-2xl font-semibold tracking-tight">{lead.name}</h1>
-        <div className="mt-1 text-sm text-stone-600">
-          {lead.project_address && <span>{lead.project_address} · </span>}
-          {lead.source && <span className="capitalize">{lead.source.replace("_", " ")}</span>}
+        <Link href="/" className="inline-flex items-center text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-brand)]">
+          ← Dashboard
+        </Link>
+        <div className="mt-3 flex items-baseline justify-between">
+          <h1 className="text-3xl font-semibold tracking-tight">{lead.name}</h1>
+          {lead.source && (
+            <span className="rounded-full bg-[var(--color-canvas)] px-3 py-1 text-xs uppercase tracking-wider text-[var(--color-ink-soft)]">
+              {lead.source === "meta_ads" ? "Meta Ads" : lead.source === "google_lsa" ? "Google LSA" : lead.source === "manual" ? "Manual entry" : "Referral"}
+            </span>
+          )}
         </div>
+        {lead.project_address && (
+          <div className="mt-1 text-sm text-[var(--color-ink-soft)]">{lead.project_address}</div>
+        )}
         {lead.notes && (
-          <div className="mt-3 rounded border border-stone-200 bg-white p-3 text-sm text-stone-700">
-            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-stone-500">Intake notes</div>
-            <p className="whitespace-pre-wrap">{lead.notes}</p>
+          <div className="mt-4 rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-4">
+            <div className="mb-1 text-xs font-medium uppercase tracking-wider text-[var(--color-ink-muted)]">
+              Intake notes
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-[var(--color-ink)]">{lead.notes}</p>
           </div>
         )}
       </div>
 
-      <section className="rounded-lg border border-stone-200 bg-white p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-stone-500">Draft a new proposal</h2>
-        <p className="mt-2 text-sm text-stone-600">
-          Paste your site walk notes below. Marcus-brain interprets them, matches line items, drafts the proposal narrative.
-          You review and approve before anything goes out.
-        </p>
+      <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-6">
+        <div className="mb-2">
+          <h2 className="text-lg font-semibold tracking-tight">Draft the proposal</h2>
+          <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
+            Paste your site walk notes below. We&apos;ll write the proposal for you in about 30 seconds. You review and approve before anything goes out.
+          </p>
+        </div>
         <DraftForm leadId={lead.id} />
       </section>
 
-      {(proposals ?? []).length > 0 && (
+      {proposalList.length > 0 && (
         <section>
-          <h2 className="text-xl font-semibold tracking-tight">Proposals for this lead</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Proposals for this lead</h2>
           <ul className="mt-3 space-y-2">
-            {(proposals ?? []).map((p: any) => (
-              <li key={p.id} className="rounded border border-stone-200 bg-white p-4">
+            {proposalList.map((p: any) => (
+              <li key={p.id} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium">
-                      {p.status === "draft" ? "Draft" : p.status === "approved" ? "Approved" : "Sent"} — ${(p.total ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                      <ProposalStatusBadge status={p.status} />
+                      <span className="ml-3 tabular-nums">${(p.total ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</span>
                     </div>
-                    <div className="text-xs text-stone-500">
+                    <div className="mt-1 text-xs text-[var(--color-ink-muted)]">
                       {new Date(p.created_at).toLocaleString()}
                       {(p.flags ?? []).length > 0 && (
-                        <span className="ml-2 text-amber-700">{(p.flags ?? []).length} flag{(p.flags ?? []).length === 1 ? "" : "s"}</span>
+                        <span className="ml-2 text-[var(--color-warn)]">{(p.flags ?? []).length} item{(p.flags ?? []).length === 1 ? "" : "s"} flagged</span>
                       )}
                     </div>
                   </div>
                   <Link
                     href={p.status === "draft" ? `/proposals/${p.id}/review` : `/proposals/${p.id}/sent`}
-                    className="text-sm text-emerald-700 hover:underline"
+                    className="text-sm font-medium text-[var(--color-brand)] hover:underline"
                   >
-                    {p.status === "draft" ? "Review →" : "View →"}
+                    {p.status === "draft" ? "Review draft →" : "View →"}
                   </Link>
                 </div>
               </li>
@@ -79,12 +87,20 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           </ul>
         </section>
       )}
-
-      {(siteWalks ?? []).length > 0 && (
-        <section className="text-xs text-stone-500">
-          {(siteWalks ?? []).length} site walk note{(siteWalks ?? []).length === 1 ? "" : "s"} saved.
-        </section>
-      )}
     </div>
+  );
+}
+
+function ProposalStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    draft: "bg-[var(--color-warn-soft)] text-[var(--color-warn)]",
+    approved: "bg-[var(--color-brand-soft)] text-[var(--color-brand-dark)]",
+    sent: "bg-[var(--color-brand-soft)] text-[var(--color-brand-dark)]",
+  };
+  const label = status === "draft" ? "Draft" : status === "approved" ? "Approved" : "Sent";
+  return (
+    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${styles[status] ?? ""}`}>
+      {label}
+    </span>
   );
 }

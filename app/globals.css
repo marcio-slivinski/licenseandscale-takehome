@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-canvas: #f7f5f1;
+  --color-card: #ffffff;
+  --color-ink: #1c2421;
+  --color-ink-soft: #4a5550;
+  --color-ink-muted: #7a857f;
+  --color-line: #e3ddd2;
+  --color-line-strong: #d4cdbf;
+  --color-brand: #2d5a3d;
+  --color-brand-dark: #1f4029;
+  --color-brand-soft: #e8f0eb;
+  --color-accent: #b8854b;
+  --color-warn: #b07d2a;
+  --color-warn-soft: #faf3e0;
+  --color-danger: #9e2b25;
+  --color-danger-soft: #fbe9e7;
+  --color-success: #2d5a3d;
+  --color-success-soft: #e8f0eb;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Charter", "Iowan Old Style", "Source Serif Pro", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+html, body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Inputs default styling — overridable via utility classes */
+input, textarea, select {
+  font-family: inherit;
+  color: var(--color-ink);
+  background-color: var(--color-card);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+input::placeholder, textarea::placeholder {
+  color: var(--color-ink-muted);
+}
+
+/* Subtle focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+button:focus-visible {
+  outline-offset: 3px;
+}
+
+/* Smooth transitions on interactive elements */
+button, a, input, textarea, select {
+  transition-property: background-color, border-color, color, opacity, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
 }
