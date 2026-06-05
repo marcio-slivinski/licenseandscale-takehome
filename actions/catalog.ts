@@ -177,6 +177,100 @@ export async function getCatalog(): Promise<PricingItem[]> {
   return (data ?? []) as PricingItem[];
 }
 
+// ── Google Sheet sync ────────────────────────────────────────────────────────
+
+export type SheetSyncConfig = {
+  sheet_csv_url: string | null;
+  last_synced_at: string | null;
+  last_result: ImportResult | null;
+};
+
+export async function getSheetSyncConfig(): Promise<SheetSyncConfig> {
+  const { data } = await supabaseAdmin
+    .from("catalog_sync_config")
+    .select("sheet_csv_url, last_synced_at, last_result")
+    .eq("id", 1)
+    .single();
+  return {
+    sheet_csv_url: data?.sheet_csv_url ?? null,
+    last_synced_at: data?.last_synced_at ?? null,
+    last_result: (data?.last_result ?? null) as ImportResult | null,
+  };
+}
+
+export async function setSheetUrl(url: string): Promise<{ ok: boolean; error?: string }> {
+  const trimmed = url.trim();
+  if (trimmed && !/^https:\/\//.test(trimmed)) {
+    return { ok: false, error: "URL must start with https://" };
+  }
+  const { error } = await supabaseAdmin
+    .from("catalog_sync_config")
+    .update({ sheet_csv_url: trimmed || null, updated_at: new Date().toISOString() })
+    .eq("id", 1);
+  if (error) return { ok: false, error: error.message };
+  await audit("pricing_item", "00000000-0000-0000-0000-000000000000", "edited", { action: "sheet_url_set", url: trimmed || "(cleared)" });
+  revalidatePath("/settings/catalog");
+  return { ok: true };
+}
+
+/**
+ * Fetch published-CSV from configured URL, parse, upsert.
+ *
+ * Trade-off documented in README: this approach requires Marcus to publish his Google Sheet
+ * as a public CSV (File -> Share -> Publish to web). Anyone with the URL can read.
+ * Production upgrade path: Google Sheets API with service account credentials.
+ */
+export async function syncFromSheet(): Promise<ImportResult> {
+  const config = await getSheetSyncConfig();
+  if (!config.sheet_csv_url) {
+    return { ok: false, error: "No Google Sheet URL configured. Set it first." };
+  }
+
+  let csvText: string;
+  try {
+    const response = await fetch(config.sheet_csv_url, { cache: "no-store" });
+    if (!response.ok) {
+      const summary: ImportResult = { ok: false, error: `Fetch failed: HTTP ${response.status}. Confirm the sheet is published as CSV.` };
+      await persistResult(summary);
+      return summary;
+    }
+    csvText = await response.text();
+  } catch (err) {
+    const summary: ImportResult = { ok: false, error: `Network error: ${err instanceof Error ? err.message : "unknown"}` };
+    await persistResult(summary);
+    return summary;
+  }
+
+  if (csvText.trim().length === 0) {
+    const summary: ImportResult = { ok: false, error: "Sheet returned empty content." };
+    await persistResult(summary);
+    return summary;
+  }
+
+  const result = await importCSV(csvText);
+  await persistResult(result);
+  return result;
+}
+
+async function persistResult(result: ImportResult) {
+  await supabaseAdmin
+    .from("catalog_sync_config")
+    .update({
+      last_synced_at: new Date().toISOString(),
+      last_result: result,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+  await audit("pricing_item", "00000000-0000-0000-0000-000000000000", "uploaded", {
+    action: "sheet_synced",
+    ok: result.ok,
+    ...(result.ok
+      ? { inserted: result.inserted, updated: result.updated, skipped: result.skipped.length }
+      : { error: result.error }),
+  });
+  revalidatePath("/settings/catalog");
+}
+
 // ── CSV parser (minimal, no deps) ────────────────────────────────────────────
 /**
  * Tiny CSV parser handling double-quoted fields with embedded commas/newlines.

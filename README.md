@@ -174,7 +174,7 @@ Tags pipe-separated. category ∈ {hardscape, landscape, irrigation, lighting, w
 
 - **GHL API push** — would update opportunity stage + push PDF to GHL. ~2h of integration work. Cut for 24h ship.
 - **Voice memo input** — Whisper transcription of Marcus dictating. ~1.5h. Paste-text only in P0.
-- **Google Sheets sync** — daily polling of Marcus's pricing sheet to auto-update the catalog. P0 covers this need via the CSV import + manual edit UI. Sheets sync is a ~3h add when Marcus tires of re-exporting.
+- **Scheduled sheet sync** — P0 ships a one-click manual sync from a published Google Sheet CSV URL (see "Sync from your Google Sheet" panel on `/settings/catalog`). Each click pulls the latest CSV, upserts by item name, writes the result to `catalog_sync_config.last_result`. Production add: Vercel Cron daily run + Google Sheets API + service account (so the sheet doesn't have to be publicly published). ~2h work.
 - **Auth** — single-user demo. Production adds Supabase Auth + per-user RLS.
 - **Embedding-based matching** — overkill for ~200 item catalog. Haiku classification is faster + cheaper + gives reasoning we can show in UI.
 - **Tests** — coverage deliberately deferred to ship within 24h. Production would include integration tests on guardrails and unit tests on scope extraction.

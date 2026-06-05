@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { getCatalog } from "@/actions/catalog";
+import { getCatalog, getSheetSyncConfig } from "@/actions/catalog";
 import { CatalogClient } from "./CatalogClient";
+import { SheetSyncPanel } from "./SheetSyncPanel";
 
 export const dynamic = "force-dynamic";
 
 export default async function CatalogPage() {
-  const catalog = await getCatalog();
+  const [catalog, syncConfig] = await Promise.all([getCatalog(), getSheetSyncConfig()]);
 
   return (
     <div className="space-y-8">
@@ -17,6 +18,8 @@ export default async function CatalogPage() {
           Changes here only affect future drafts. Proposals already sent keep the price they were sent at.
         </p>
       </div>
+
+      <SheetSyncPanel initialConfig={syncConfig} />
 
       <CatalogClient initialCatalog={catalog} />
     </div>
