@@ -53,7 +53,12 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
             Paste your site walk notes below. We&apos;ll write the proposal for you in about 30 seconds. You review and approve before anything goes out.
           </p>
         </div>
-        <DraftForm leadId={lead.id} />
+        <DraftForm
+          leadId={lead.id}
+          leadName={lead.name}
+          intakeNotes={lead.notes ?? ""}
+          source={lead.source ?? null}
+        />
       </section>
 
       {proposalList.length > 0 && (

@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { draftProposal } from "@/actions/proposals";
-
-const EXAMPLE_NOTES = `Walked the backyard with Sarah today. About 600 sqft of patio space currently dirt — she wants travertine pavers, 24x24 if possible. Adding a cedar pergola, 12x12 over the seating area. Gas fire pit, basic, nothing fancy. Strip of premium turf for the kids, maybe 400 sqft. Path lighting along the new walkway, about 8 path lights. HOA submission needed — Camelback Country Club, board meets monthly. Site is flat, easy access from side gate.`;
 
 const PROGRESS_MESSAGES = [
   "Reading your notes…",
@@ -14,7 +12,14 @@ const PROGRESS_MESSAGES = [
   "Almost done…",
 ];
 
-export function DraftForm({ leadId }: { leadId: string }) {
+type Props = {
+  leadId: string;
+  leadName: string;
+  intakeNotes: string;
+  source: string | null;
+};
+
+export function DraftForm({ leadId, leadName, intakeNotes, source }: Props) {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -23,6 +28,11 @@ export function DraftForm({ leadId }: { leadId: string }) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef<number>(0);
   const router = useRouter();
+
+  const exampleNotes = useMemo(
+    () => buildExampleNotes(leadName, intakeNotes, source),
+    [leadName, intakeNotes, source],
+  );
 
   useEffect(() => {
     if (!isPending) {
@@ -43,19 +53,14 @@ export function DraftForm({ leadId }: { leadId: string }) {
 
       let p: number;
       if (s <= 5) {
-        // 0 → 70 in 5s, ease-out
         p = (s / 5) * 70;
       } else if (s <= 15) {
-        // 70 → 97 in next 10s, slower curve
         p = 70 + ((s - 5) / 10) * 27;
       } else {
-        // After 15s: 1% per 5s, cap at 99
         p = Math.min(99, 97 + (s - 15) / 5);
       }
 
       setProgress(p);
-
-      // Cycle message every ~6s
       setMessageIdx(Math.min(PROGRESS_MESSAGES.length - 1, Math.floor(s / 6)));
     }, 200);
 
@@ -73,7 +78,6 @@ export function DraftForm({ leadId }: { leadId: string }) {
         setError(result.error);
         return;
       }
-      // Snap to 100 then navigate
       setProgress(100);
       setTimeout(() => router.push(`/proposals/${result.proposalId}/review`), 250);
     });
@@ -98,11 +102,11 @@ export function DraftForm({ leadId }: { leadId: string }) {
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setNotes(EXAMPLE_NOTES)}
+            onClick={() => setNotes(exampleNotes)}
             disabled={isPending}
             className="text-xs text-[var(--color-ink-muted)] underline underline-offset-2 hover:text-[var(--color-ink)]"
           >
-            Try example notes
+            Try example notes for {firstName(leadName)}
           </button>
           <span className="text-xs text-[var(--color-ink-muted)]">{charCount} chars (need 20+)</span>
         </div>
@@ -137,4 +141,40 @@ export function DraftForm({ leadId }: { leadId: string }) {
       )}
     </form>
   );
+}
+
+function firstName(full: string): string {
+  return (full ?? "").trim().split(/\s+/)[0] || "this lead";
+}
+
+/**
+ * Build a plausible "site walk dictation" tailored to the lead's intake notes.
+ *
+ * Strategy: frame as Marcus's post-walk dictation, anchor on the lead's first name, then weave
+ * intake notes back into Marcus's voice. If intake is empty, falls back to a generic Phoenix
+ * backyard scope so the user can still test the flow.
+ */
+function buildExampleNotes(name: string, intake: string, source: string | null): string {
+  const fn = firstName(name);
+  const trimmed = intake.trim();
+
+  if (!trimmed) {
+    return `Walked the property with ${fn} today. Standard Phoenix backyard, about 500 sqft of patio space currently bare ground. Looking at travertine pavers, 24x24, maybe a cedar pergola, basic gas fire pit, and a strip of premium turf. Path lighting along the walkway. Site is flat, easy crew access.`;
+  }
+
+  const channelHint =
+    source === "google_lsa" ? "Called in this morning, walked the property after lunch." :
+    source === "meta_ads" ? "Reached out off the Meta form, walked the property today." :
+    source === "referral" ? "Referral, walked the property today." :
+    "Walked the property today.";
+
+  return `${channelHint} ${fn}'s notes summary:
+
+${trimmed}
+
+My read on site:
+- Confirmed the scope above. Sizes match what they described.
+- Access is fine for the crew, normal Phoenix lot.
+- Materials available, nothing custom-order on the catalog side.
+- Adjust quantities or strike anything that does not match what you saw on the walk.`;
 }
