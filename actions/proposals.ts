@@ -169,11 +169,15 @@ export async function approveProposal(
 
   const { data: lineItemsRaw } = await supabaseAdmin
     .from("proposal_line_items")
-    .select("*")
+    .select("*, pricing_items(*)")
     .eq("proposal_id", proposalId)
     .order("position", { ascending: true });
 
-  const lineItems = (lineItemsRaw ?? []) as ProposalLineItem[];
+  type RawLineItem = ProposalLineItem & { pricing_items: PricingItem | PricingItem[] | null };
+  const lineItems = ((lineItemsRaw ?? []) as unknown as RawLineItem[]).map((li) => ({
+    ...li,
+    pricing_items: Array.isArray(li.pricing_items) ? li.pricing_items[0] ?? null : li.pricing_items,
+  }));
 
   const { data: lead } = await supabaseAdmin.from("leads").select("*").eq("id", proposal.lead_id).single();
   if (!lead) return { ok: false, error: "Lead not found." };
@@ -192,18 +196,28 @@ export async function approveProposal(
     await audit("voice_exemplar", proposalId, "uploaded", { source: "edit_correction" });
   }
 
-  // Apply user edits to line items (toggle needs_review, adjust qty)
+  // Apply user edits + snapshot LIVE catalog prices at approval time.
+  // Items whose catalog row was deleted are dropped (delete line item) — they were
+  // hidden in the UI anyway, so Marcus didn't see them.
   const editMap = new Map(editedItems.map((e) => [e.id, e]));
   let newTotal = 0;
   for (const li of lineItems) {
     const edit = editMap.get(li.id);
     if (!edit) continue;
-    const newSubtotal = edit.needs_review ? 0 : Number(li.unit_price) * edit.quantity;
+    const pricing = li.pricing_items;
+    if (!pricing) {
+      // Catalog item gone — drop the line item entirely.
+      await supabaseAdmin.from("proposal_line_items").delete().eq("id", li.id);
+      continue;
+    }
+    const liveUnitPrice = Number(pricing.unit_price);
+    const newSubtotal = edit.needs_review ? 0 : liveUnitPrice * edit.quantity;
     await supabaseAdmin
       .from("proposal_line_items")
       .update({
         quantity: edit.quantity,
         needs_review: edit.needs_review,
+        unit_price: liveUnitPrice,
         subtotal: newSubtotal,
       })
       .eq("id", li.id);
@@ -399,13 +413,178 @@ export async function addLineItem(
   };
 }
 
+// ── removeLineItem ───────────────────────────────────────────────────────────
+export async function removeLineItem(proposalId: string, lineItemId: string): Promise<{ ok: boolean; error?: string }> {
+  const { data: proposal } = await supabaseAdmin.from("proposals").select("status").eq("id", proposalId).single();
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") return { ok: false, error: "Can only remove items from a draft." };
+
+  const { error } = await supabaseAdmin.from("proposal_line_items").delete().eq("id", lineItemId).eq("proposal_id", proposalId);
+  if (error) return { ok: false, error: error.message };
+
+  await audit("proposal", proposalId, "edited", { change: "line_item_removed", line_item_id: lineItemId });
+  revalidatePath(`/proposals/${proposalId}/review`);
+  return { ok: true };
+}
+
 // ── catalogList (read helper for clients) ────────────────────────────────────
 export async function getCatalogForPicker(): Promise<PricingItem[]> {
   const { data } = await supabaseAdmin.from("pricing_items").select("*").order("category", { ascending: true });
   return (data ?? []) as PricingItem[];
 }
 
-// ── refreshDraftPrices ───────────────────────────────────────────────────────
+// ── regenerateNarrative ──────────────────────────────────────────────────────
+export type RegenerateNarrativeResult =
+  | { ok: true; narrative: string; total: number }
+  | { ok: false; error: string };
+
+/**
+ * Rewrite the proposal narrative based on the CURRENT draft state.
+ *
+ * Use case: Marcus edited quantities, toggled items in/out, added items from the catalog,
+ * and now wants the narrative text to reflect his current item list (instead of the
+ * original auto-draft text). Scope and matches are synthesized from current line items.
+ *
+ * What this PRESERVES:
+ *  - Marcus's quantity edits (we persist them first)
+ *  - Marcus's include/exclude toggles (we persist them first)
+ *  - Line items he added via '+ Add item'
+ *  - Live catalog prices (drafts compute live)
+ *
+ * What this REPLACES:
+ *  - The narrative text only
+ *
+ * Drafts only. Sent proposals are immutable.
+ */
+export async function regenerateNarrative(
+  proposalId: string,
+  editedItems: EditedLineItem[],
+): Promise<RegenerateNarrativeResult> {
+  const { data: proposal } = await supabaseAdmin
+    .from("proposals")
+    .select("id, status, lead_id, site_walk_id")
+    .eq("id", proposalId)
+    .single();
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") {
+    return { ok: false, error: "Only drafts can be regenerated." };
+  }
+
+  const rl = rateLimit(`regenerate-text:${proposal.lead_id}`, { max: 1, windowMs: 15_000 });
+  if (!rl.allowed) {
+    return { ok: false, error: `Wait ${Math.ceil(rl.retryAfterMs / 1000)}s before regenerating again.` };
+  }
+
+  // Persist user edits to DB first
+  for (const edit of editedItems) {
+    await supabaseAdmin
+      .from("proposal_line_items")
+      .update({ quantity: edit.quantity, needs_review: edit.needs_review })
+      .eq("id", edit.id);
+  }
+
+  // Load everything we need in parallel
+  const [{ data: lead }, { data: siteWalk }, { data: catalogRaw }, { data: exemplarsRaw }, { data: lineItemsRaw }] =
+    await Promise.all([
+      supabaseAdmin.from("leads").select("*").eq("id", proposal.lead_id).single(),
+      proposal.site_walk_id
+        ? supabaseAdmin.from("site_walks").select("*").eq("id", proposal.site_walk_id).single()
+        : Promise.resolve({ data: null }),
+      supabaseAdmin.from("pricing_items").select("*"),
+      supabaseAdmin.from("voice_exemplars").select("*").order("uploaded_at", { ascending: false }).limit(50),
+      supabaseAdmin
+        .from("proposal_line_items")
+        .select("*, pricing_items(*)")
+        .eq("proposal_id", proposalId)
+        .order("position", { ascending: true }),
+    ]);
+
+  if (!lead) return { ok: false, error: "Lead not found." };
+
+  const catalog = (catalogRaw ?? []) as PricingItem[];
+  const exemplars = (exemplarsRaw ?? []) as VoiceExemplar[];
+
+  type RawLineItem = {
+    id: string;
+    scope_description: string;
+    quantity: number;
+    needs_review: boolean;
+    confidence: number;
+    pricing_item_id: string | null;
+    pricing_items: PricingItem | PricingItem[] | null;
+  };
+  const lineItems = ((lineItemsRaw ?? []) as unknown as RawLineItem[])
+    .map((li) => ({
+      ...li,
+      pricing_items: Array.isArray(li.pricing_items) ? li.pricing_items[0] ?? null : li.pricing_items,
+    }))
+    .filter((li) => li.pricing_items != null); // catalog deletes drop silently
+
+  // Build the synthesized scope + matches from CURRENT live state, included items only
+  const includedItems = lineItems.filter((li) => !li.needs_review);
+  if (includedItems.length === 0) {
+    return { ok: false, error: "Nothing to write about — all items are excluded. Toggle some on first." };
+  }
+
+  const originalScope = (siteWalk?.parsed_scope ?? null) as
+    | { project_type?: string; site_constraints?: string[]; estimated_complexity?: "simple" | "medium" | "complex" }
+    | null;
+
+  const scope = {
+    project_type: originalScope?.project_type ?? "outdoor project",
+    items: includedItems.map((li) => ({
+      description: li.scope_description,
+      category: (li.pricing_items as PricingItem).category as
+        | "hardscape" | "landscape" | "irrigation" | "lighting" | "water_feature" | "structure",
+      quantity: Number(li.quantity),
+      unit: (li.pricing_items as PricingItem).unit as "sqft" | "linear_ft" | "each" | "project",
+      complexity_notes: undefined,
+    })),
+    site_constraints: originalScope?.site_constraints ?? [],
+    estimated_complexity: originalScope?.estimated_complexity ?? "medium",
+  };
+
+  // Synthesize matches — each item already has a known pricing_item_id + confidence
+  const matches = includedItems.map((li, idx) => ({
+    scope_index: idx,
+    pricing_item_id: li.pricing_item_id,
+    confidence: Number(li.confidence),
+    reasoning: "user-curated",
+    scope_item: scope.items[idx],
+  }));
+
+  const narrativeResult = await writeNarrative({
+    lead: { name: lead.name, project_address: lead.project_address, notes: lead.notes },
+    scope,
+    matches,
+    catalog,
+    exemplars,
+  });
+  if (!narrativeResult.ok) return { ok: false, error: `Narrative generation failed: ${narrativeResult.error}` };
+
+  // Live total from current catalog
+  let liveTotal = 0;
+  for (const li of includedItems) {
+    const pricing = li.pricing_items as PricingItem;
+    liveTotal += Number(pricing.unit_price) * Number(li.quantity);
+  }
+
+  await supabaseAdmin
+    .from("proposals")
+    .update({ narrative: narrativeResult.narrative, total: liveTotal })
+    .eq("id", proposalId);
+
+  await audit("proposal", proposalId, "edited", {
+    change: "narrative_regenerated",
+    item_count: includedItems.length,
+    total: liveTotal,
+  });
+
+  revalidatePath(`/proposals/${proposalId}/review`);
+  return { ok: true, narrative: narrativeResult.narrative, total: liveTotal };
+}
+
+// ── refreshDraftPrices (DEPRECATED — drafts now bind live to catalog) ────────
 export type RefreshPricesResult =
   | { ok: true; updated: number; missing: number }
   | { ok: false; error: string };

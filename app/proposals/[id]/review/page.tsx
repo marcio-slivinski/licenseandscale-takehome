@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase";
 import { ReviewClient } from "./ReviewClient";
+import type { PricingItem } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
   const [{ data: lineItemsRaw }, { data: catalogRaw }] = await Promise.all([
     supabaseAdmin
       .from("proposal_line_items")
-      .select("*, pricing_items(item_name, unit, category)")
+      .select("*, pricing_items(*)")
       .eq("proposal_id", id)
       .order("position", { ascending: true }),
     supabaseAdmin
@@ -37,20 +38,35 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
       .order("item_name", { ascending: true }),
   ]);
 
-  const catalog = (catalogRaw ?? []) as any[];
+  const catalog = (catalogRaw ?? []) as PricingItem[];
 
-  const lineItems = (lineItemsRaw ?? []).map((li: any) => ({
-    id: li.id,
-    scope_description: li.scope_description,
-    item_name: li.pricing_items?.item_name ?? "(no exact match)",
-    category: li.pricing_items?.category ?? "—",
-    unit: li.pricing_items?.unit ?? li.unit ?? "—",
-    quantity: Number(li.quantity),
-    unit_price: Number(li.unit_price),
-    subtotal: Number(li.subtotal),
-    confidence: li.confidence == null ? 0 : Number(li.confidence),
-    needs_review: li.needs_review,
-  }));
+  // Live binding: drafts show current catalog prices/names.
+  // Items whose catalog row was deleted stay visible with an 'orphan' flag — Marcus must
+  // explicitly resolve them (remove from proposal or restore in catalog). Silent removal
+  // would be wrong: drafts must be correct OR clearly flagged.
+  const lineItems = (lineItemsRaw ?? []).map((li: any) => {
+    const pricing = Array.isArray(li.pricing_items) ? li.pricing_items[0] : li.pricing_items;
+    const orphan = !pricing;
+    const quantity = Number(li.quantity);
+    // For orphans we fall back to the snapshot we wrote at draft time, so the row still renders.
+    const unitPrice = orphan ? Number(li.unit_price ?? 0) : Number(pricing.unit_price);
+    const subtotal = orphan || li.needs_review ? 0 : unitPrice * quantity;
+    return {
+      id: li.id,
+      scope_description: li.scope_description,
+      item_name: orphan ? li.scope_description : pricing.item_name,
+      category: orphan ? "—" : pricing.category,
+      unit: orphan ? (li.unit ?? "—") : pricing.unit,
+      quantity,
+      unit_price: unitPrice,
+      subtotal,
+      confidence: li.confidence == null ? 0 : Number(li.confidence),
+      needs_review: li.needs_review,
+      orphan,
+    };
+  });
+
+  const liveTotal = lineItems.reduce((sum, li) => sum + (li.orphan || li.needs_review ? 0 : li.subtotal), 0);
 
   return (
     <div className="space-y-6">
@@ -60,7 +76,7 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
         </Link>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Review the draft</h1>
         <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-          Look it over. Edit anything that&apos;s off. Approve when it&apos;s good — we&apos;ll send it.
+          Look it over. Edit anything that&apos;s off. Prices and items update live from your catalog while it&apos;s a draft. Approve when it&apos;s good — we&apos;ll send it.
         </p>
       </div>
 
@@ -71,7 +87,7 @@ export default async function ProposalReviewPage({ params }: { params: Promise<{
         parsedScope={siteWalk?.parsed_scope ?? null}
         narrative={proposal.narrative ?? ""}
         lineItems={lineItems}
-        total={Number(proposal.total ?? 0)}
+        total={liveTotal}
         flags={proposal.flags ?? []}
         catalog={catalog}
       />
