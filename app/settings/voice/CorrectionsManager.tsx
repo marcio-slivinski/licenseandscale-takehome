@@ -10,16 +10,27 @@ type Correction = {
   metadata: { original?: string; edited?: string } | null;
 };
 
-export function CorrectionsManager({ initialCorrections }: { initialCorrections: Correction[] }) {
+export function CorrectionsManager({ initialCorrections, searchable = false }: { initialCorrections: Correction[]; searchable?: boolean }) {
   const router = useRouter();
   const [corrections, setCorrections] = useState<Correction[]>(initialCorrections);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return corrections;
+    return corrections.filter((c) => {
+      const meta = c.metadata ?? {};
+      const hay = `${meta.original ?? ""} ${meta.edited ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [corrections, query]);
 
   const allSelected = useMemo(
-    () => corrections.length > 0 && corrections.every((c) => selected.has(c.id)),
-    [corrections, selected],
+    () => filtered.length > 0 && filtered.every((c) => selected.has(c.id)),
+    [filtered, selected],
   );
 
   function toggle(id: string) {
@@ -33,9 +44,17 @@ export function CorrectionsManager({ initialCorrections }: { initialCorrections:
 
   function toggleAll() {
     if (allSelected) {
-      setSelected(new Set());
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((c) => next.delete(c.id));
+        return next;
+      });
     } else {
-      setSelected(new Set(corrections.map((c) => c.id)));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filtered.forEach((c) => next.add(c.id));
+        return next;
+      });
     }
   }
 
@@ -73,27 +92,38 @@ export function CorrectionsManager({ initialCorrections }: { initialCorrections:
       </div>
 
       {corrections.length > 0 && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-card)] px-4 py-2.5">
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
+        <>
+          {searchable && corrections.length > 5 && (
             <input
-              type="checkbox"
-              checked={allSelected}
-              onChange={toggleAll}
-              className="h-4 w-4 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search corrections by text…"
+              className="mt-3 w-full rounded-md border border-[var(--color-line-strong)] bg-[var(--color-card)] px-3 py-2 text-sm placeholder:text-[var(--color-ink-muted)]"
             />
-            <span className="text-[var(--color-ink-soft)]">
-              {selected.size === 0 ? "Select all" : selected.size === corrections.length ? `All ${corrections.length} selected` : `${selected.size} of ${corrections.length} selected`}
-            </span>
-          </label>
-          <button
-            type="button"
-            onClick={onDeleteSelected}
-            disabled={isPending || selected.size === 0}
-            className="rounded-md bg-[var(--color-danger)] px-4 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {isPending ? "Deleting…" : `Delete ${selected.size > 0 ? selected.size : "selected"}`}
-          </button>
-        </div>
+          )}
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--color-line)] bg-[var(--color-card)] px-4 py-2.5">
+            <label className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                className="h-4 w-4 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
+              />
+              <span className="text-[var(--color-ink-soft)]">
+                {selected.size === 0 ? (query ? `Select ${filtered.length} shown` : "Select all") : selected.size === corrections.length ? `All ${corrections.length} selected` : `${selected.size} of ${corrections.length} selected`}
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={onDeleteSelected}
+              disabled={isPending || selected.size === 0}
+              className="rounded-md bg-[var(--color-danger)] px-4 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isPending ? "Deleting…" : `Delete ${selected.size > 0 ? selected.size : "selected"}`}
+            </button>
+          </div>
+        </>
       )}
 
       {error && (
@@ -102,13 +132,13 @@ export function CorrectionsManager({ initialCorrections }: { initialCorrections:
         </div>
       )}
 
-      <ul className="mt-3 space-y-3">
+      <ul className="mt-3 max-h-[60vh] space-y-3 overflow-auto">
         {corrections.length === 0 ? (
           <li className="rounded-xl border border-dashed border-[var(--color-line-strong)] bg-[var(--color-canvas)] p-8 text-center text-sm text-[var(--color-ink-muted)]">
             No edits saved yet. Approve a draft with some changes and it&apos;ll show up here.
           </li>
         ) : (
-          corrections.map((c) => {
+          filtered.map((c) => {
             const meta = c.metadata ?? {};
             const isSelected = selected.has(c.id);
             return (

@@ -120,16 +120,31 @@ export function DraftForm({ leadId, leadName, intakeNotes, source }: Props) {
       </div>
 
       {isPending && (
-        <div className="space-y-2 rounded-lg border border-[var(--color-line)] bg-[var(--color-card)] p-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-[var(--color-ink-soft)]">{PROGRESS_MESSAGES[messageIdx]}</span>
-            <span className="tabular-nums text-xs font-medium text-[var(--color-ink-muted)]">{Math.round(progress)}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-canvas)]">
-            <div
-              className="h-full rounded-full bg-[var(--color-brand)]"
-              style={{ width: `${progress}%`, transition: "width 200ms ease-out" }}
-            />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-[var(--color-line)] bg-[var(--color-card)] p-10 shadow-2xl">
+            <div className="text-center">
+              <div className="mb-2 text-xs font-medium uppercase tracking-widest text-[var(--color-brand-dark)]">
+                Drafting proposal
+              </div>
+              <div className="text-2xl font-semibold tracking-tight text-[var(--color-ink)]">
+                {PROGRESS_MESSAGES[messageIdx]}
+              </div>
+            </div>
+            <div className="mt-8">
+              <div className="mb-2 flex items-center justify-between text-sm">
+                <span className="text-[var(--color-ink-muted)]">Working through your notes</span>
+                <span className="tabular-nums font-semibold text-[var(--color-ink)]">{Math.round(progress)}%</span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-[var(--color-canvas)]">
+                <div
+                  className="h-full rounded-full bg-[var(--color-brand)]"
+                  style={{ width: `${progress}%`, transition: "width 200ms ease-out" }}
+                />
+              </div>
+              <p className="mt-6 text-center text-xs text-[var(--color-ink-muted)]">
+                Hang tight, this takes about 30 seconds. Do not close the tab.
+              </p>
+            </div>
           </div>
         </div>
       )}

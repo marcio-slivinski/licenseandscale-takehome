@@ -11,16 +11,23 @@ type Exemplar = {
   uploaded_at: string;
 };
 
-export function ExemplarsList({ items, kind }: { items: Exemplar[]; kind: "proposal" | "voice_doc" }) {
+export function ExemplarsList({ items, kind, searchable = false }: { items: Exemplar[]; kind: "proposal" | "voice_doc"; searchable?: boolean }) {
   const router = useRouter();
   const [list, setList] = useState<Exemplar[]>(items);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [query, setQuery] = useState("");
+
+  const filteredList = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((i) => (i.source_filename ?? "").toLowerCase().includes(q));
+  }, [list, query]);
 
   const allSelected = useMemo(
-    () => list.length > 0 && list.every((c) => selected.has(c.id)),
-    [list, selected],
+    () => filteredList.length > 0 && filteredList.every((c) => selected.has(c.id)),
+    [filteredList, selected],
   );
 
   function toggle(id: string) {
@@ -33,8 +40,20 @@ export function ExemplarsList({ items, kind }: { items: Exemplar[]; kind: "propo
   }
 
   function toggleAll() {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(list.map((c) => c.id)));
+    if (allSelected) {
+      // Deselect everything currently filtered
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filteredList.forEach((i) => next.delete(i.id));
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        filteredList.forEach((i) => next.add(i.id));
+        return next;
+      });
+    }
   }
 
   function onDeleteSelected() {
@@ -63,6 +82,15 @@ export function ExemplarsList({ items, kind }: { items: Exemplar[]; kind: "propo
 
   return (
     <div className="mt-4 space-y-2">
+      {searchable && list.length > 5 && (
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={`Search ${kind === "proposal" ? "proposals" : "samples"} by filename…`}
+          className="w-full rounded-md border border-[var(--color-line-strong)] bg-[var(--color-card)] px-3 py-2 text-sm placeholder:text-[var(--color-ink-muted)]"
+        />
+      )}
       <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-line)] bg-[var(--color-canvas)] px-3 py-2">
         <label className="flex cursor-pointer items-center gap-2 text-xs">
           <input
@@ -73,7 +101,7 @@ export function ExemplarsList({ items, kind }: { items: Exemplar[]; kind: "propo
           />
           <span className="text-[var(--color-ink-soft)]">
             {selected.size === 0
-              ? "Select all"
+              ? query ? `Select ${filteredList.length} shown` : "Select all"
               : selected.size === list.length
               ? `All ${list.length} selected`
               : `${selected.size} of ${list.length} selected`}
@@ -95,8 +123,8 @@ export function ExemplarsList({ items, kind }: { items: Exemplar[]; kind: "propo
         </div>
       )}
 
-      <ul className="space-y-1.5 text-sm">
-        {list.map((item) => {
+      <ul className="max-h-[60vh] space-y-1.5 overflow-auto text-sm">
+        {filteredList.map((item) => {
           const isSelected = selected.has(item.id);
           return (
             <li

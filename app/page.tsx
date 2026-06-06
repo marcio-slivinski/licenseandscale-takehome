@@ -29,7 +29,17 @@ export default async function Dashboard() {
   for (const p of allProposals) {
     if (p.status === "draft" && !draftByLead.has(p.lead_id)) draftByLead.set(p.lead_id, p);
   }
-  const pendingLeads = allLeads.filter((l) => !doneLeadIds.has(l.id));
+
+  // Qualification scoring: source intent + notes richness + budget/HOA signals.
+  // Sort highest score first, then oldest (FIFO for ties) so nothing waits too long.
+  const pendingLeads = allLeads
+    .filter((l) => !doneLeadIds.has(l.id))
+    .map((l) => ({ ...l, _score: scoreLead(l) }))
+    .sort((a, b) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    });
+
   const sentProposals = allProposals.filter((p) => p.status === "approved" || p.status === "sent");
 
   return (
@@ -66,6 +76,7 @@ export default async function Dashboard() {
           ) : (
             pendingLeads.map((l) => {
               const draft = draftByLead.get(l.id);
+              const quality = qualityLabel(l._score);
               return (
                 <Link
                   key={l.id}
@@ -74,9 +85,15 @@ export default async function Dashboard() {
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span className="text-base font-semibold text-[var(--color-ink)]">{l.name}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${quality.cls}`} title={`Qualification score ${l._score}`}>
+                          {quality.label}
+                        </span>
                         {l.source && <SourceTag source={l.source} />}
+                        <span className="text-xs text-[var(--color-ink-muted)]" title={new Date(l.created_at).toLocaleString()}>
+                          {relativeTime(l.created_at)}
+                        </span>
                       </div>
                       {l.project_address && (
                         <div className="mt-1 text-sm text-[var(--color-ink-muted)]">{l.project_address}</div>
@@ -149,6 +166,48 @@ export default async function Dashboard() {
       )}
     </div>
   );
+}
+
+function scoreLead(lead: { source: string | null; notes: string | null }): number {
+  let score = 0;
+  const source = lead.source ?? "";
+  if (source === "referral") score += 100;
+  else if (source === "google_lsa") score += 80;
+  else if (source === "meta_ads") score += 60;
+  else if (source === "manual") score += 40;
+  else score += 20;
+
+  const notes = lead.notes ?? "";
+  if (notes.length > 200) score += 30;
+  else if (notes.length > 100) score += 20;
+  else if (notes.length > 50) score += 10;
+
+  // Budget signal
+  if (/\$|budget|\bk\b|premium/i.test(notes)) score += 15;
+  // Detail signals
+  if (/hoa|permit|architect/i.test(notes)) score += 10;
+  // Timeline signals
+  if (/asap|urgent|before|by\s+\w+/i.test(notes)) score += 10;
+
+  return score;
+}
+
+function qualityLabel(score: number): { label: string; cls: string } {
+  if (score >= 130) return { label: "Hot", cls: "bg-[var(--color-danger-soft)] text-[var(--color-danger)]" };
+  if (score >= 90) return { label: "Strong", cls: "bg-[var(--color-brand-soft)] text-[var(--color-brand-dark)]" };
+  if (score >= 60) return { label: "Warm", cls: "bg-[var(--color-warn-soft)] text-[var(--color-warn)]" };
+  return { label: "Cold", cls: "bg-[var(--color-canvas)] text-[var(--color-ink-soft)]" };
+}
+
+function relativeTime(iso: string): string {
+  const t = new Date(iso).getTime();
+  const seconds = Math.floor((Date.now() - t) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  const days = Math.floor(seconds / 86400);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function StatBadge({ label, value, accent }: { label: string; value: number; accent?: boolean }) {
