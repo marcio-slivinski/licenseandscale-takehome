@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { VoiceUpload } from "./VoiceUpload";
 import { CorrectionsManager } from "./CorrectionsManager";
 import { ExemplarsList } from "./ExemplarsList";
+import { ImportSentButton } from "./ImportSentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,7 @@ function UploadSection({ title, subtitle, type, items, accept }: { title: string
       <div className="mt-4">
         <VoiceUpload type={type} accept={accept} />
       </div>
+      {type === "proposal" && <ImportSentButton />}
       <ExemplarsList items={formatted} kind={type} />
     </section>
   );
