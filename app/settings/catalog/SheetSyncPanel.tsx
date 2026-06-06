@@ -15,6 +15,7 @@ export function SheetSyncPanel({ initialConfig }: { initialConfig: SheetSyncConf
   const [savingUrl, startSaveTransition] = useTransition();
   const [syncing, startSyncTransition] = useTransition();
   const [helperOpen, setHelperOpen] = useState(false);
+  const [mirrorMode, setMirrorMode] = useState(false);
 
   const urlChanged = url.trim() !== savedUrl.trim();
 
@@ -31,9 +32,14 @@ export function SheetSyncPanel({ initialConfig }: { initialConfig: SheetSyncConf
   }
 
   function onSyncNow() {
+    if (mirrorMode) {
+      if (!confirm(
+        "Mirror mode will DELETE items from your catalog that are not in the sheet. Any item not in the sheet right now will be permanently removed. Continue?",
+      )) return;
+    }
     setError(null);
     startSyncTransition(async () => {
-      const result = await syncFromSheet();
+      const result = await syncFromSheet({ mirror: mirrorMode });
       setLastResult(result);
       setLastSyncedAt(new Date().toISOString());
       if (!result.ok) {
@@ -80,6 +86,20 @@ export function SheetSyncPanel({ initialConfig }: { initialConfig: SheetSyncConf
         >
           {syncing ? "Syncing…" : "Sync now"}
         </button>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-xs">
+        <input
+          id="mirror-mode"
+          type="checkbox"
+          checked={mirrorMode}
+          onChange={(e) => setMirrorMode(e.target.checked)}
+          disabled={syncing}
+          className="h-3.5 w-3.5 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
+        />
+        <label htmlFor="mirror-mode" className="cursor-pointer text-[var(--color-ink-soft)]">
+          Mirror mode — delete items from the catalog if they&apos;re not in the sheet
+        </label>
       </div>
 
       {error && (
@@ -132,7 +152,12 @@ function SyncStatus({ lastSyncedAt, lastResult }: { lastSyncedAt: string | null;
 
   const ok = lastResult?.ok ?? false;
   const summary = lastResult?.ok
-    ? `${lastResult.inserted} new · ${lastResult.updated} updated${lastResult.skipped.length > 0 ? ` · ${lastResult.skipped.length} skipped` : ""}`
+    ? [
+        lastResult.inserted > 0 ? `${lastResult.inserted} new` : null,
+        lastResult.updated > 0 ? `${lastResult.updated} updated` : null,
+        lastResult.purged > 0 ? `${lastResult.purged} deleted` : null,
+        lastResult.skipped.length > 0 ? `${lastResult.skipped.length} skipped` : null,
+      ].filter(Boolean).join(" · ") || "no changes"
     : lastResult?.error
     ? `Error: ${lastResult.error.slice(0, 60)}${lastResult.error.length > 60 ? "…" : ""}`
     : "Status unknown";

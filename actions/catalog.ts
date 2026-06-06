@@ -98,19 +98,28 @@ export type ImportSummary = {
   ok: true;
   inserted: number;
   updated: number;
+  purged: number;
   skipped: Array<{ row: number; reason: string }>;
 };
 export type ImportResult = ImportSummary | { ok: false; error: string };
 
-export async function importCSV(csvText: string): Promise<ImportResult> {
-  const rows = parseCSV(csvText);
+export type ImportOptions = {
+  /** If true, items in the DB whose names aren't in the CSV get DELETED. Sheet = source of truth. */
+  mirror?: boolean;
+};
+
+export async function importCSV(csvText: string, options: ImportOptions = {}): Promise<ImportResult> {
+  // Strip BOM if present (Google Sheets sometimes emits one)
+  const cleanText = csvText.replace(/^﻿/, "");
+  const rows = parseCSV(cleanText);
   if (rows.length === 0) return { ok: false, error: "CSV is empty or has no parseable rows." };
 
-  const header = rows[0].map((c) => c.trim().toLowerCase());
+  const header = rows[0].map((c) => c.trim().toLowerCase().replace(/^﻿/, ""));
   const requiredCols = ["category", "item_name", "unit", "unit_price"];
-  const optionalCols = ["description", "tags"];
   for (const col of requiredCols) {
-    if (!header.includes(col)) return { ok: false, error: `Missing required column: ${col}` };
+    if (!header.includes(col)) {
+      return { ok: false, error: `Missing required column: ${col}. Found columns: ${header.join(", ")}` };
+    }
   }
 
   const idx = {
@@ -131,15 +140,17 @@ export async function importCSV(csvText: string): Promise<ImportResult> {
 
   let inserted = 0;
   let updated = 0;
+  let purged = 0;
   const skipped: Array<{ row: number; reason: string }> = [];
+  const csvNames = new Set<string>();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (row.length === 1 && !row[0].trim()) continue; // blank line
 
-    const category = (row[idx.category] ?? "").trim();
+    const category = (row[idx.category] ?? "").trim().toLowerCase();
     const item_name = (row[idx.item_name] ?? "").trim();
-    const unit = (row[idx.unit] ?? "").trim();
+    const unit = (row[idx.unit] ?? "").trim().toLowerCase();
     const unitPriceRaw = (row[idx.unit_price] ?? "").replace(/[$,\s]/g, "");
     const unit_price = Number(unitPriceRaw);
     const description = idx.description >= 0 ? ((row[idx.description] ?? "").trim() || null) : null;
@@ -153,8 +164,10 @@ export async function importCSV(csvText: string): Promise<ImportResult> {
     if (!(unit_price > 0)) { skipped.push({ row: i + 1, reason: `invalid unit_price: ${row[idx.unit_price]}` }); continue; }
 
     const payload = { category, item_name, description, unit, unit_price, tags };
+    const nameKey = item_name.toLowerCase().trim();
+    csvNames.add(nameKey);
 
-    const existingId = existingByName.get(item_name.toLowerCase().trim());
+    const existingId = existingByName.get(nameKey);
     if (existingId) {
       const { error } = await supabaseAdmin.from("pricing_items").update(payload).eq("id", existingId);
       if (error) skipped.push({ row: i + 1, reason: `update failed: ${error.message}` });
@@ -166,9 +179,19 @@ export async function importCSV(csvText: string): Promise<ImportResult> {
     }
   }
 
-  await audit("pricing_item", "bulk", "uploaded", { inserted, updated, skipped: skipped.length });
+  // Mirror mode: delete items in DB that aren't in the sheet anymore.
+  if (options.mirror) {
+    for (const [nameKey, id] of existingByName.entries()) {
+      if (!csvNames.has(nameKey)) {
+        const { error } = await supabaseAdmin.from("pricing_items").delete().eq("id", id);
+        if (!error) purged += 1;
+      }
+    }
+  }
+
+  await audit("pricing_item", "bulk", "uploaded", { inserted, updated, purged, skipped: skipped.length, mirror: !!options.mirror });
   revalidatePath("/settings/catalog");
-  return { ok: true, inserted, updated, skipped };
+  return { ok: true, inserted, updated, purged, skipped };
 }
 
 // ── getCatalog (read helper) ─────────────────────────────────────────────────
@@ -220,15 +243,24 @@ export async function setSheetUrl(url: string): Promise<{ ok: boolean; error?: s
  * as a public CSV (File -> Share -> Publish to web). Anyone with the URL can read.
  * Production upgrade path: Google Sheets API with service account credentials.
  */
-export async function syncFromSheet(): Promise<ImportResult> {
+export async function syncFromSheet(options: ImportOptions = {}): Promise<ImportResult> {
   const config = await getSheetSyncConfig();
   if (!config.sheet_csv_url) {
     return { ok: false, error: "No Google Sheet URL configured. Set it first." };
   }
 
+  // Cache-bust: Google publish-to-CSV caches for ~5 min. Append a timestamp param so each
+  // sync hits the latest version. (Google may still serve stale, but worth trying.)
+  const baseUrl = config.sheet_csv_url;
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  const fetchUrl = `${baseUrl}${sep}_=${Date.now()}`;
+
   let csvText: string;
   try {
-    const response = await fetch(config.sheet_csv_url, { cache: "no-store" });
+    const response = await fetch(fetchUrl, {
+      cache: "no-store",
+      headers: { "cache-control": "no-cache", "pragma": "no-cache" },
+    });
     if (!response.ok) {
       const summary: ImportResult = { ok: false, error: `Fetch failed: HTTP ${response.status}. Confirm the sheet is published as CSV.` };
       await persistResult(summary);
@@ -247,7 +279,7 @@ export async function syncFromSheet(): Promise<ImportResult> {
     return summary;
   }
 
-  const result = await importCSV(csvText);
+  const result = await importCSV(csvText, options);
   await persistResult(result);
   return result;
 }

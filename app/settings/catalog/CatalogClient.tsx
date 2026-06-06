@@ -326,12 +326,21 @@ function AddItemDialog({ onClose, onCreated }: { onClose: () => void; onCreated:
 function ImportDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [mirrorMode, setMirrorMode] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function onFile(file: File) {
+    if (mirrorMode) {
+      if (!confirm(
+        "Mirror mode will DELETE items from your catalog that are not in this CSV. Continue?",
+      )) {
+        if (fileRef.current) fileRef.current.value = "";
+        return;
+      }
+    }
     const text = await file.text();
     startTransition(async () => {
-      const r = await importCSV(text);
+      const r = await importCSV(text, { mirror: mirrorMode });
       setResult(r);
       if (r.ok) onDone();
     });
@@ -372,13 +381,27 @@ function ImportDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
           )}
         </label>
 
+        <div className="mt-3 flex items-center gap-2 text-xs">
+          <input
+            id="manual-mirror"
+            type="checkbox"
+            checked={mirrorMode}
+            onChange={(e) => setMirrorMode(e.target.checked)}
+            disabled={isPending}
+            className="h-3.5 w-3.5 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
+          />
+          <label htmlFor="manual-mirror" className="cursor-pointer text-[var(--color-ink-soft)]">
+            Mirror mode — delete catalog items missing from this CSV
+          </label>
+        </div>
+
         {result && (
           <div className={`mt-4 rounded-md p-3 text-sm ${result.ok ? "bg-[var(--color-brand-soft)] text-[var(--color-brand-dark)]" : "bg-[var(--color-danger-soft)] text-[var(--color-danger)]"}`}>
             {result.ok ? (
               <>
                 <div className="font-medium">Done.</div>
                 <div className="mt-1 text-xs">
-                  {result.inserted} inserted, {result.updated} updated, {result.skipped.length} skipped.
+                  {result.inserted} inserted, {result.updated} updated, {result.purged > 0 ? `${result.purged} deleted, ` : ""}{result.skipped.length} skipped.
                 </div>
                 {result.skipped.length > 0 && (
                   <details className="mt-2">
