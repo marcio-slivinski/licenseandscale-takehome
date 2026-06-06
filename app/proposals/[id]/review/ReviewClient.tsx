@@ -196,7 +196,7 @@ export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _par
               <th className="px-5 py-2.5 text-right font-medium">Qty</th>
               <th className="px-5 py-2.5 text-right font-medium">Unit price</th>
               <th className="px-5 py-2.5 text-right font-medium">Subtotal</th>
-              <th className="px-5 py-2.5 text-center font-medium">Include</th>
+              <th className="px-5 py-2.5 text-center font-medium">Include / Remove</th>
             </tr>
           </thead>
           <tbody>
@@ -249,22 +249,36 @@ export function ReviewClient({ proposalId, leadName, rawNotes, parsedScope: _par
                     `$${(item.unit_price * item.quantity).toLocaleString("en-US", { maximumFractionDigits: 0 })}`
                   }
                 </td>
-                <td className="px-5 py-3 text-center">
+                <td className="px-5 py-3">
                   {item.orphan ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveLineItem(item.id)}
-                      className="rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white hover:opacity-90"
-                    >
-                      Remove
-                    </button>
+                    <div className="flex justify-center">
+                      <button
+                        type="button"
+                        onClick={() => onRemoveLineItem(item.id)}
+                        className="rounded-md bg-[var(--color-danger)] px-2 py-1 text-xs font-medium text-white hover:opacity-90"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   ) : (
-                    <input
-                      type="checkbox"
-                      checked={!item.needs_review}
-                      onChange={(e) => updateItem(item.id, { needs_review: !e.target.checked })}
-                      className="h-4 w-4 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
-                    />
+                    <div className="flex items-center justify-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={!item.needs_review}
+                        onChange={(e) => updateItem(item.id, { needs_review: !e.target.checked })}
+                        className="h-4 w-4 rounded border-[var(--color-line-strong)] accent-[var(--color-brand)]"
+                        title={item.needs_review ? "Include in total" : "Exclude from total (keep on list)"}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onRemoveLineItem(item.id)}
+                        className="rounded-md p-1 text-[var(--color-ink-muted)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
+                        title="Remove from proposal entirely"
+                        aria-label="Remove line item"
+                      >
+                        <span className="block leading-none text-base">×</span>
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>

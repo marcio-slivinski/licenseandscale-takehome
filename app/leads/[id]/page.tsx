@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase";
 import { DraftForm } from "./DraftForm";
+import { DeleteDraftForm } from "./DeleteDraftForm";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +68,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
           <ul className="mt-3 space-y-2">
             {proposalList.map((p: any) => (
               <li key={p.id} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-medium">
                       <ProposalStatusBadge status={p.status} />
@@ -80,12 +81,17 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
                       )}
                     </div>
                   </div>
-                  <Link
-                    href={p.status === "draft" ? `/proposals/${p.id}/review` : `/proposals/${p.id}/sent`}
-                    className="text-sm font-medium text-[var(--color-brand)] hover:underline"
-                  >
-                    {p.status === "draft" ? "Review draft →" : "View →"}
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    {p.status === "draft" && (
+                      <DeleteDraftForm proposalId={p.id} />
+                    )}
+                    <Link
+                      href={p.status === "draft" ? `/proposals/${p.id}/review` : `/proposals/${p.id}/sent`}
+                      className="text-sm font-medium text-[var(--color-brand)] hover:underline"
+                    >
+                      {p.status === "draft" ? "Review draft →" : "View →"}
+                    </Link>
+                  </div>
                 </div>
               </li>
             ))}

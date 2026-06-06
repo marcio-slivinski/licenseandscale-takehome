@@ -413,6 +413,33 @@ export async function addLineItem(
   };
 }
 
+// ── deleteDraft ──────────────────────────────────────────────────────────────
+/**
+ * Delete a draft proposal entirely (including line items, audit references stay).
+ *
+ * Sent / approved proposals are immutable — error returned.
+ */
+export async function deleteDraft(proposalId: string): Promise<{ ok: boolean; error?: string }> {
+  const { data: proposal } = await supabaseAdmin
+    .from("proposals")
+    .select("id, status, lead_id")
+    .eq("id", proposalId)
+    .single();
+  if (!proposal) return { ok: false, error: "Proposal not found." };
+  if (proposal.status !== "draft") {
+    return { ok: false, error: "Only drafts can be deleted. Sent proposals are permanent." };
+  }
+
+  // proposal_line_items cascade via FK; site_walk stays (it's the raw notes Marcus typed).
+  const { error } = await supabaseAdmin.from("proposals").delete().eq("id", proposalId);
+  if (error) return { ok: false, error: error.message };
+
+  await audit("proposal", proposalId, "edited", { change: "draft_deleted" });
+  revalidatePath(`/leads/${proposal.lead_id}`);
+  revalidatePath("/");
+  return { ok: true };
+}
+
 // ── removeLineItem ───────────────────────────────────────────────────────────
 export async function removeLineItem(proposalId: string, lineItemId: string): Promise<{ ok: boolean; error?: string }> {
   const { data: proposal } = await supabaseAdmin.from("proposals").select("status").eq("id", proposalId).single();
