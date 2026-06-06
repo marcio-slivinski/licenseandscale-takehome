@@ -108,6 +108,46 @@ export function SheetSyncPanel({ initialConfig }: { initialConfig: SheetSyncConf
         </div>
       )}
 
+      {lastResult?.ok && (lastResult.priceChanges?.length > 0 || lastResult.skipped.length > 0) && (
+        <div className="mt-4 space-y-3 rounded-md bg-[var(--color-canvas)] p-4 text-xs">
+          {lastResult.priceChanges?.length > 0 && (
+            <details open>
+              <summary className="cursor-pointer font-medium text-[var(--color-ink)]">
+                Price changes ({lastResult.priceChanges.length})
+              </summary>
+              <ul className="mt-2 space-y-1 text-[var(--color-ink-soft)]">
+                {lastResult.priceChanges.slice(0, 30).map((c, i) => (
+                  <li key={i} className="flex items-baseline gap-2">
+                    <span className="font-medium text-[var(--color-ink)]">{c.name}</span>
+                    <span className="text-[var(--color-ink-muted)] line-through">${c.oldPrice.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                    <span>→</span>
+                    <span className="font-semibold text-[var(--color-brand-dark)]">${c.newPrice.toLocaleString("en-US", { maximumFractionDigits: 2 })}</span>
+                  </li>
+                ))}
+                {lastResult.priceChanges.length > 30 && (
+                  <li className="text-[var(--color-ink-muted)]">…and {lastResult.priceChanges.length - 30} more.</li>
+                )}
+              </ul>
+            </details>
+          )}
+          {lastResult.skipped.length > 0 && (
+            <details>
+              <summary className="cursor-pointer font-medium text-[var(--color-warn)]">
+                Skipped rows ({lastResult.skipped.length})
+              </summary>
+              <ul className="mt-2 space-y-1 text-[var(--color-ink-soft)]">
+                {lastResult.skipped.slice(0, 20).map((s) => (
+                  <li key={s.row}>Row {s.row}: {s.reason}</li>
+                ))}
+                {lastResult.skipped.length > 20 && (
+                  <li className="text-[var(--color-ink-muted)]">…and {lastResult.skipped.length - 20} more.</li>
+                )}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
       <button
         onClick={() => setHelperOpen(!helperOpen)}
         className="mt-4 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
@@ -155,6 +195,7 @@ function SyncStatus({ lastSyncedAt, lastResult }: { lastSyncedAt: string | null;
     ? [
         lastResult.inserted > 0 ? `${lastResult.inserted} new` : null,
         lastResult.updated > 0 ? `${lastResult.updated} updated` : null,
+        lastResult.priceChanges?.length > 0 ? `${lastResult.priceChanges.length} price changes` : null,
         lastResult.purged > 0 ? `${lastResult.purged} deleted` : null,
         lastResult.skipped.length > 0 ? `${lastResult.skipped.length} skipped` : null,
       ].filter(Boolean).join(" · ") || "no changes"

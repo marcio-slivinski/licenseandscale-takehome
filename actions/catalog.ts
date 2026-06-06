@@ -100,8 +100,31 @@ export type ImportSummary = {
   updated: number;
   purged: number;
   skipped: Array<{ row: number; reason: string }>;
+  priceChanges: Array<{ name: string; oldPrice: number; newPrice: number }>;
 };
 export type ImportResult = ImportSummary | { ok: false; error: string };
+
+/**
+ * Parse a price string. Handles US (1,234.56) and BR/EU (1.234,56) locales.
+ * Whichever separator appears last is treated as the decimal separator.
+ */
+function parsePrice(raw: string): number {
+  let s = (raw ?? "").replace(/[$\s]/g, "");
+  if (!s) return NaN;
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+  if (lastComma > lastDot) {
+    // Comma is decimal separator (BR/EU)
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > -1) {
+    // Dot is decimal separator (US)
+    s = s.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    // Only comma present and no dot — treat as decimal
+    s = s.replace(",", ".");
+  }
+  return Number(s);
+}
 
 export type ImportOptions = {
   /** If true, items in the DB whose names aren't in the CSV get DELETED. Sheet = source of truth. */
@@ -131,17 +154,18 @@ export async function importCSV(csvText: string, options: ImportOptions = {}): P
     tags: header.indexOf("tags"),
   };
 
-  // Load existing items for upsert-by-name.
-  const { data: existingRaw } = await supabaseAdmin.from("pricing_items").select("id, item_name");
-  const existingByName = new Map<string, string>();
-  for (const item of (existingRaw ?? []) as Array<{ id: string; item_name: string }>) {
-    existingByName.set(item.item_name.toLowerCase().trim(), item.id);
+  // Load existing items for upsert-by-name (include unit_price so we can compute diffs).
+  const { data: existingRaw } = await supabaseAdmin.from("pricing_items").select("id, item_name, unit_price");
+  const existingByName = new Map<string, { id: string; unit_price: number }>();
+  for (const item of (existingRaw ?? []) as Array<{ id: string; item_name: string; unit_price: number }>) {
+    existingByName.set(item.item_name.toLowerCase().trim(), { id: item.id, unit_price: Number(item.unit_price) });
   }
 
   let inserted = 0;
   let updated = 0;
   let purged = 0;
   const skipped: Array<{ row: number; reason: string }> = [];
+  const priceChanges: Array<{ name: string; oldPrice: number; newPrice: number }> = [];
   const csvNames = new Set<string>();
 
   for (let i = 1; i < rows.length; i++) {
@@ -151,8 +175,7 @@ export async function importCSV(csvText: string, options: ImportOptions = {}): P
     const category = (row[idx.category] ?? "").trim().toLowerCase();
     const item_name = (row[idx.item_name] ?? "").trim();
     const unit = (row[idx.unit] ?? "").trim().toLowerCase();
-    const unitPriceRaw = (row[idx.unit_price] ?? "").replace(/[$,\s]/g, "");
-    const unit_price = Number(unitPriceRaw);
+    const unit_price = parsePrice(row[idx.unit_price] ?? "");
     const description = idx.description >= 0 ? ((row[idx.description] ?? "").trim() || null) : null;
     const tagsRaw = idx.tags >= 0 ? (row[idx.tags] ?? "").trim() : "";
     const tags = tagsRaw ? tagsRaw.split(/[|;]/).map((t) => t.trim()).filter(Boolean) : null;
@@ -161,17 +184,23 @@ export async function importCSV(csvText: string, options: ImportOptions = {}): P
     if (!item_name) { skipped.push({ row: i + 1, reason: "missing item_name" }); continue; }
     if (!VALID_CATEGORIES.has(category)) { skipped.push({ row: i + 1, reason: `invalid category: ${category}` }); continue; }
     if (!VALID_UNITS.has(unit)) { skipped.push({ row: i + 1, reason: `invalid unit: ${unit}` }); continue; }
-    if (!(unit_price > 0)) { skipped.push({ row: i + 1, reason: `invalid unit_price: ${row[idx.unit_price]}` }); continue; }
+    if (!(unit_price > 0)) { skipped.push({ row: i + 1, reason: `invalid unit_price: ${row[idx.unit_price]} (parsed ${unit_price})` }); continue; }
 
     const payload = { category, item_name, description, unit, unit_price, tags };
     const nameKey = item_name.toLowerCase().trim();
     csvNames.add(nameKey);
 
-    const existingId = existingByName.get(nameKey);
-    if (existingId) {
-      const { error } = await supabaseAdmin.from("pricing_items").update(payload).eq("id", existingId);
-      if (error) skipped.push({ row: i + 1, reason: `update failed: ${error.message}` });
-      else updated += 1;
+    const existing = existingByName.get(nameKey);
+    if (existing) {
+      const { error } = await supabaseAdmin.from("pricing_items").update(payload).eq("id", existing.id);
+      if (error) {
+        skipped.push({ row: i + 1, reason: `update failed: ${error.message}` });
+      } else {
+        updated += 1;
+        if (Math.abs(existing.unit_price - unit_price) > 0.001) {
+          priceChanges.push({ name: item_name, oldPrice: existing.unit_price, newPrice: unit_price });
+        }
+      }
     } else {
       const { error } = await supabaseAdmin.from("pricing_items").insert(payload);
       if (error) skipped.push({ row: i + 1, reason: `insert failed: ${error.message}` });
@@ -181,17 +210,20 @@ export async function importCSV(csvText: string, options: ImportOptions = {}): P
 
   // Mirror mode: delete items in DB that aren't in the sheet anymore.
   if (options.mirror) {
-    for (const [nameKey, id] of existingByName.entries()) {
+    for (const [nameKey, entry] of existingByName.entries()) {
       if (!csvNames.has(nameKey)) {
-        const { error } = await supabaseAdmin.from("pricing_items").delete().eq("id", id);
+        const { error } = await supabaseAdmin.from("pricing_items").delete().eq("id", entry.id);
         if (!error) purged += 1;
       }
     }
   }
 
-  await audit("pricing_item", "bulk", "uploaded", { inserted, updated, purged, skipped: skipped.length, mirror: !!options.mirror });
+  await audit("pricing_item", "bulk", "uploaded", {
+    inserted, updated, purged, skipped: skipped.length,
+    priceChanges: priceChanges.length, mirror: !!options.mirror,
+  });
   revalidatePath("/settings/catalog");
-  return { ok: true, inserted, updated, purged, skipped };
+  return { ok: true, inserted, updated, purged, skipped, priceChanges };
 }
 
 // ── getCatalog (read helper) ─────────────────────────────────────────────────
