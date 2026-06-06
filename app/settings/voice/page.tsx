@@ -2,7 +2,7 @@ import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import { VoiceUpload } from "./VoiceUpload";
 import { CorrectionsManager } from "./CorrectionsManager";
-import { deleteVoiceExemplar } from "@/actions/voice";
+import { ExemplarsList } from "./ExemplarsList";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +58,13 @@ export default async function VoiceSettingsPage() {
 }
 
 function UploadSection({ title, subtitle, type, items, accept }: { title: string; subtitle: string; type: "proposal" | "voice_doc"; items: any[]; accept: string }) {
+  const formatted = items.map((item) => ({
+    id: item.id,
+    source_filename: item.source_filename ?? null,
+    content_length: item.content?.length ?? 0,
+    uploaded_at: item.uploaded_at,
+  }));
+
   return (
     <section className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-5">
       <div className="flex items-baseline justify-between">
@@ -70,23 +77,7 @@ function UploadSection({ title, subtitle, type, items, accept }: { title: string
       <div className="mt-4">
         <VoiceUpload type={type} accept={accept} />
       </div>
-      {items.length > 0 && (
-        <ul className="mt-4 space-y-1.5 text-sm">
-          {items.map((item) => (
-            <li key={item.id} className="flex items-center justify-between rounded-md border border-[var(--color-line)] px-3 py-2">
-              <div className="min-w-0">
-                <div className="truncate font-medium text-[var(--color-ink)]">{item.source_filename ?? "(unnamed)"}</div>
-                <div className="text-xs text-[var(--color-ink-muted)]">
-                  {(item.content?.length ?? 0).toLocaleString()} characters · {new Date(item.uploaded_at).toLocaleDateString()}
-                </div>
-              </div>
-              <form action={async () => { "use server"; await deleteVoiceExemplar(item.id); }}>
-                <button type="submit" className="text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-danger)]">Remove</button>
-              </form>
-            </li>
-          ))}
-        </ul>
-      )}
+      <ExemplarsList items={formatted} kind={type} />
     </section>
   );
 }
