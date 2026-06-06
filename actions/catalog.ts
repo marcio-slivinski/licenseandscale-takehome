@@ -113,15 +113,25 @@ function parsePrice(raw: string): number {
   if (!s) return NaN;
   const lastDot = s.lastIndexOf(".");
   const lastComma = s.lastIndexOf(",");
-  if (lastComma > lastDot) {
-    // Comma is decimal separator (BR/EU)
+  if (lastComma > lastDot && lastDot > -1) {
+    // Both present, comma after dot → comma is decimal (EU style: 1.234,56)
     s = s.replace(/\./g, "").replace(",", ".");
   } else if (lastDot > -1) {
-    // Dot is decimal separator (US)
+    // Dot is decimal (US style: 1,234.56 or 28.00). Strip commas as thousands.
     s = s.replace(/,/g, "");
   } else if (lastComma > -1) {
-    // Only comma present and no dot — treat as decimal
-    s = s.replace(",", ".");
+    // Only comma(s), no dot. Multi-comma → thousands separators (1,234,567).
+    // Single comma → could be decimal (BR "28,00") or unlikely thousands ("1,234").
+    // Heuristic: if comma followed by exactly 3 digits at end → thousands. Else decimal.
+    const commaCount = (s.match(/,/g) ?? []).length;
+    if (commaCount >= 2) {
+      s = s.replace(/,/g, "");
+    } else if (/,\d{3}$/.test(s) && !/,\d{1,2}$/.test(s)) {
+      // unlikely path — "1,234" reads as thousands too
+      s = s.replace(",", "");
+    } else {
+      s = s.replace(",", ".");
+    }
   }
   return Number(s);
 }

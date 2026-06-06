@@ -14,7 +14,7 @@ import type { PricingItem } from "@/lib/types";
 const CATEGORIES = ["hardscape", "landscape", "irrigation", "lighting", "water_feature", "structure"] as const;
 const UNITS = ["sqft", "linear_ft", "each", "project"] as const;
 
-type EditableItem = PricingItem & { _editing?: boolean; _draft?: Partial<PricingItem> };
+type EditableItem = PricingItem;
 
 export function CatalogClient({ initialCatalog }: { initialCatalog: PricingItem[] }) {
   const router = useRouter();
