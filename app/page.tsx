@@ -47,9 +47,9 @@ export default async function Dashboard() {
       {/* Page header w/ stats + new-lead button */}
       <div className="flex items-end justify-between border-b border-[var(--color-line)] pb-6">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Waiting Proposal</h1>
           <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-            Meta and Google leads flow in here. Draft a proposal in 30 seconds, review, send.
+            Leads from your ads, calls, and referrals that still need a proposal. Sorted by qualification, oldest first when tied.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -62,9 +62,8 @@ export default async function Dashboard() {
       {/* Leads waiting on proposal */}
       <section>
         <div className="mb-4">
-          <h2 className="text-lg font-semibold tracking-tight">Leads waiting on a proposal</h2>
-          <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-            Click a lead, paste your site walk notes, we draft the proposal in your voice.
+          <p className="text-sm text-[var(--color-ink-soft)]">
+            Click a lead, paste your site walk notes, draft a proposal in your voice.
           </p>
         </div>
 
@@ -121,48 +120,12 @@ export default async function Dashboard() {
         </div>
       </section>
 
-      {/* Sent proposals */}
       {sentProposals.length > 0 && (
-        <section>
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold tracking-tight">Sent proposals</h2>
-            <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-              Approved and sent to the client. PDF saved, Slack notified.
-            </p>
-          </div>
-          <div className="overflow-hidden rounded-xl border border-[var(--color-line)] bg-[var(--color-card)]">
-            <table className="w-full text-sm">
-              <thead className="bg-[var(--color-canvas)] text-xs uppercase tracking-wider text-[var(--color-ink-muted)]">
-                <tr>
-                  <th className="px-5 py-3 text-left font-medium">Client</th>
-                  <th className="px-5 py-3 text-left font-medium">Project</th>
-                  <th className="px-5 py-3 text-right font-medium">Total</th>
-                  <th className="px-5 py-3 text-right font-medium">Sent</th>
-                  <th className="px-5 py-3 text-right font-medium"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sentProposals.map((p) => (
-                  <tr key={p.id} className="border-t border-[var(--color-line)] hover:bg-[var(--color-canvas)]/50">
-                    <td className="px-5 py-3 font-medium">{p.leads?.name ?? "—"}</td>
-                    <td className="px-5 py-3 text-[var(--color-ink-soft)]">{p.leads?.project_address ?? "—"}</td>
-                    <td className="px-5 py-3 text-right tabular-nums font-medium">
-                      ${(p.total ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className="px-5 py-3 text-right text-[var(--color-ink-muted)]">
-                      {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <Link href={`/proposals/${p.id}/sent`} className="text-[var(--color-brand)] hover:underline">
-                        View →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <div className="text-center">
+          <Link href="/sent" className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-brand)]">
+            See {sentProposals.length} sent proposal{sentProposals.length === 1 ? "" : "s"} →
+          </Link>
+        </div>
       )}
     </div>
   );
