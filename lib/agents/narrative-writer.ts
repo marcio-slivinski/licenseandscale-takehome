@@ -71,10 +71,16 @@ Greenscape positioning (your actual phrasing)
 
 Structure
 
+If past proposals by Marcus are provided in the system prompt above, FOLLOW THEIR STRUCTURE. Match how Marcus orders sections, where he places the scope summary, when he mentions timeline, how he signs off. His past work is the source of truth on structure, not these defaults.
+
+If no past proposals are provided, fall back to this template:
+
 1. Opening (1-3 short sentences). Reference the walk or call, the client by first name, what you discussed.
 2. What you are building (a paragraph or two). Plain language summary. No prices in this paragraph; the table is below. Mention complexity factors that matter: HOA, slope, access.
 3. Timeline plus what is next (short paragraph). Realistic build time. HOA or permit delays mentioned if relevant. How your process works ("once you are in, we handle the HOA package and permit work from there").
 4. Sign-off line. Just "Marcus" on its own line.
+
+Edit corrections (when present) show how Marcus has previously edited the agent's draft text. The corrections capture both voice changes AND structural reorders. If a pattern of structural change is visible across multiple corrections, apply it.
 
 Hard constraint
 
@@ -208,7 +214,7 @@ function buildExemplarSections(exemplars: VoiceExemplar[]): {
   }
 
   if (proposals.length > 0) {
-    result.proposals = `Past proposals by Marcus (use as voice and structure model):\n\n${proposals
+    result.proposals = `Past proposals Marcus has actually signed and sent. These are the authoritative source on STRUCTURE (section order, what goes where, how he opens, how he signs off) AND VOICE (word choice, phrasing, tone). When in doubt about structure, match these. Do not impose a different template if these show a consistent pattern.\n\n${proposals
       .map((p) => `--- ${p.source_filename ?? "past proposal"} ---\n${truncate(p.content, 3000)}`)
       .join("\n\n")}`;
   }

@@ -62,3 +62,27 @@ export async function deleteVoiceExemplar(id: string): Promise<{ ok: boolean; er
   revalidatePath("/settings/voice");
   return { ok: true };
 }
+
+/**
+ * Bulk delete voice exemplars (used by the corrections manager).
+ *
+ * Use case: Marcus wants a clean slate before uploading new exemplars, or wants to
+ * purge stale auto-captured edit_corrections that no longer represent his voice.
+ */
+export async function deleteVoiceExemplars(ids: string[]): Promise<{ ok: boolean; deleted?: number; error?: string }> {
+  if (ids.length === 0) return { ok: true, deleted: 0 };
+  const { error, count } = await supabaseAdmin
+    .from("voice_exemplars")
+    .delete({ count: "exact" })
+    .in("id", ids);
+  if (error) return { ok: false, error: error.message };
+  await supabaseAdmin.from("audit_log").insert({
+    entity_type: "voice_exemplar",
+    entity_id: "00000000-0000-0000-0000-000000000000",
+    action: "edited",
+    actor: "marcus",
+    metadata: { action: "bulk_deleted", count: count ?? ids.length },
+  });
+  revalidatePath("/settings/voice");
+  return { ok: true, deleted: count ?? ids.length };
+}

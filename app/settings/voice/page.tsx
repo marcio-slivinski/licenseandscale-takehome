@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase";
 import { VoiceUpload } from "./VoiceUpload";
+import { CorrectionsManager } from "./CorrectionsManager";
 import { deleteVoiceExemplar } from "@/actions/voice";
 
 export const dynamic = "force-dynamic";
@@ -45,45 +46,13 @@ export default async function VoiceSettingsPage() {
         />
       </div>
 
-      <section>
-        <div className="flex items-baseline justify-between">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">Edits we&apos;ve learned from</h2>
-            <p className="mt-1 text-sm text-[var(--color-ink-soft)]">
-              Every time you change a draft and approve it, we save the before-and-after here. The next draft sees these examples.
-            </p>
-          </div>
-          <span className="text-sm text-[var(--color-ink-muted)]">{corrections.length} captured</span>
-        </div>
-        <ul className="mt-4 space-y-3">
-          {corrections.length === 0 ? (
-            <li className="rounded-xl border border-dashed border-[var(--color-line-strong)] bg-[var(--color-canvas)] p-8 text-center text-sm text-[var(--color-ink-muted)]">
-              No edits saved yet. Approve a draft with some changes and it&apos;ll show up here.
-            </li>
-          ) : (
-            corrections.slice(0, 10).map((c) => {
-              const meta = (c.metadata ?? {}) as { original?: string; edited?: string };
-              return (
-                <li key={c.id} className="rounded-xl border border-[var(--color-line)] bg-[var(--color-card)] p-5 text-sm">
-                  <div className="mb-3 text-xs text-[var(--color-ink-muted)]">
-                    {new Date(c.uploaded_at).toLocaleString()}
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-danger)]">Draft</div>
-                      <p className="mt-1 text-[var(--color-ink-soft)] line-clamp-4">{meta.original ?? "—"}</p>
-                    </div>
-                    <div>
-                      <div className="text-xs font-medium uppercase tracking-wider text-[var(--color-brand-dark)]">Your version</div>
-                      <p className="mt-1 text-[var(--color-ink)] line-clamp-4">{meta.edited ?? "—"}</p>
-                    </div>
-                  </div>
-                </li>
-              );
-            })
-          )}
-        </ul>
-      </section>
+      <CorrectionsManager
+        initialCorrections={corrections.map((c) => ({
+          id: c.id,
+          uploaded_at: c.uploaded_at,
+          metadata: (c.metadata ?? null) as { original?: string; edited?: string } | null,
+        }))}
+      />
     </div>
   );
 }

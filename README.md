@@ -170,6 +170,25 @@ structure,Cedar Pergola 12x12,"Stained cedar pergola",each,8500.00,pergola|cedar
 
 Tags pipe-separated. category ∈ {hardscape, landscape, irrigation, lighting, water_feature, structure}. unit ∈ {sqft, linear_ft, each, project}.
 
+## Voice training — current behavior and production roadmap
+
+**Current (P0):** the narrative writer pulls top 3 uploaded voice-docs + top 5 tag-matched past proposals + top 10 most-recent edit-corrections into the prompt. Each correction is shown as a paired before-and-after. The model uses these as few-shot examples.
+
+Past proposals are treated as the authoritative source on BOTH voice (word choice, tone) AND structure (section order, what comes first, how Marcus signs off). If past proposals are uploaded, the prompt's default structure template is overridden in favor of matching what the exemplars do. Edit corrections capture the full narrative diff, so structural reorders Marcus makes (e.g., moving "what's next" before "scope") are also learned over time.
+
+Convergence typically takes 3–5 corrections with a consistent style signal before draft output reliably reflects the new direction. This is intentionally conservative — a single odd correction should not flip the system's voice.
+
+The corrections UI on `/settings/voice` supports bulk select + delete: useful when uploading fresh exemplar templates and wanting a clean training slate.
+
+**Production improvements (when Marcus has 50+ proposals through the system):**
+
+1. **Synthesized voice profile.** Periodically (e.g., every 20 new corrections) run a meta-LLM pass that reads all corrections and writes a "Marcus Voice Profile" markdown — distilled rules, phrases to use, phrases to avoid. That profile replaces raw correction diffs in the system prompt. Stable at scale, draws on full history instead of last 10. ~$0.01 per profile rebuild. Estimated build: 2–3h.
+2. **Frequency-weighted corrections.** Surface patterns that recur across many corrections ahead of one-offs. Prevents single-edit drift, amplifies real preferences. Estimated build: 1–2h.
+3. **Tag-matched corrections.** When drafting a pergola job, prefer corrections from past pergola proposals (vs unrelated kitchen builds). Requires per-correction tagging (not in P0). Estimated build: 3h.
+4. **Larger context window.** Bump from top-10 to top-30 corrections in the prompt. Lowest effort, marginal benefit, costs ~30 extra tokens per draft.
+
+Default ranking for production: voice profile first (stable + low ongoing maintenance), then tag-matching.
+
 ## What's deliberately NOT in P0 (production roadmap)
 
 - **GHL API push** — would update opportunity stage + push PDF to GHL. ~2h of integration work. Cut for 24h ship.
