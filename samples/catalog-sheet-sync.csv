@@ -1,0 +1,29 @@
+category,item_name,description,unit,unit_price,tags
+hardscape,Travertine Paver Patio (24x24),Premium travertine pavers sand-set on compacted base,sqft,32.00,patio|travertine|premium
+hardscape,Flagstone Patio,Natural Arizona flagstone mortared joints,sqft,36.00,patio|flagstone|natural
+hardscape,Cantera Stone Pavers,Mexican cantera stone pavers sealed,sqft,24.00,patio|walkway|cantera
+hardscape,Stamped Concrete Patio,Decorative stamped and colored concrete sealed,sqft,18.00,patio|concrete|budget
+hardscape,Block Retaining Wall,Architectural block retaining wall includes drainage,linear_ft,165.00,wall|retaining|structural
+structure,Cedar Pergola 12x12,Stained western red cedar pergola custom built on site,each,9200.00,pergola|shade|cedar|premium
+structure,Aluminum Pergola 14x16,Powder-coated aluminum pergola with louvered roof,each,13500.00,pergola|shade|aluminum|louvered
+structure,Outdoor Kitchen Basic 10ft,L-shape stainless grill side burner sink granite counter,each,19500.00,kitchen|outdoor_living|stainless
+hardscape,Gas Fire Pit,Cast-stone fire pit natural gas line included,each,4500.00,fire_pit|gas|entertainment
+water_feature,Basin Fountain,Recirculating basin fountain with custom stone basin,each,6200.00,water_feature|fountain|premium
+landscape,Premium Artificial Turf (80oz),80oz pile turf drainage base full install,sqft,15.00,turf|synthetic|low_maintenance
+irrigation,Drip Irrigation System,Full property drip system controller valves lines,each,2600.00,irrigation|drip|controller
+lighting,LED Path Light,12V LED path light brass fixture transformer-fed,each,195.00,lighting|path|led
+hardscape,Travertine Paver Walkway,Travertine pavers 16x24 set as walkway,sqft,26.00,walkway|travertine|premium
+structure,Cedar Pergola 10x10,Smaller cedar pergola for compact patios,each,6800.00,pergola|cedar|compact
+structure,Outdoor Kitchen Deluxe 14ft,Premium L-shape grill smoker fridge granite counter,each,32000.00,kitchen|outdoor_living|premium|stainless
+hardscape,Concrete Paver Driveway Apron,Interlocking concrete pavers for driveway entrance,sqft,19.00,driveway|paver|durable
+lighting,LED Spotlight Tree Uplight,Brass uplight for tree feature lighting,each,225.00,lighting|uplight|brass|landscape
+lighting,LED Step Light,Recessed step light low voltage,each,145.00,lighting|step|recessed
+water_feature,Modern Sheer Descent,Wall-mounted sheer water descent for pool integration,each,8500.00,water_feature|modern|pool
+landscape,Desert Native Plant Package,Curated 10-plant desert palette with soil amendment,project,1100.00,landscape|native|desert|low_water
+landscape,Cactus Garden Install,Mixed cactus garden with decorative gravel mulch,project,1800.00,landscape|cactus|desert|low_water
+hardscape,Putting Green Synthetic,Synthetic putting green with cup and contours,sqft,22.00,turf|putting|premium
+structure,Shade Sail Triangle 18ft,Custom shade sail UV-rated heavy duty hardware,each,2400.00,shade|sail|premium
+furniture,Garbage Category Row,Invalid category for skip-test,sqft,99.00,test|skip
+hardscape,Bad Unit Row,Invalid unit for skip-test,parsec,150.00,test|skip
+hardscape,,Missing name row,each,200.00,test|skip
+hardscape,Negative Price Row,Invalid unit_price for skip-test,each,-50.00,test|skip

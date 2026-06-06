@@ -269,9 +269,12 @@ Open http://localhost:3000. Click into a demo lead. Paste notes. Draft. Review. 
 │   ├── anthropic.ts              SDK init + model constants
 │   ├── supabase.ts               Server (service-role) + anon clients
 │   └── types.ts                  Zod schemas + DB row types
-└── db/
-    ├── schema.sql                7 tables + indexes
-    └── seed.ts                   15 pricing items + 2 demo leads
+├── db/
+│   ├── schema.sql                7 tables + indexes
+│   └── seed.ts                   15 pricing items + 2 demo leads
+└── samples/                      Demo data for evaluators
+    ├── catalog-sheet-sync.csv    26-row CSV for Import CSV / Sheet Sync flows
+    └── voice-style-docs/         Two style buckets (casual + corporate) for voice A/B
 ```
 
 ---
